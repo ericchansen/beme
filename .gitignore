@@ -23,4 +23,4 @@ bun.lockb
 # Env
 .env
 .env.local
-.env.*.local
+.env.*.local*.png
