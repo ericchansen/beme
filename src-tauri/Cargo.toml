@@ -1,0 +1,26 @@
+[package]
+name = "beme"
+version = "0.1.0"
+description = "Screen and audio AI assistant — capture context, get next-best-action suggestions"
+authors = ["Eric Hansen"]
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "beme_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tokio = { version = "1", features = ["full"] }
+log = "0.4"
+env_logger = "0.11"
+

@@ -1,0 +1,26 @@
+# Dependencies
+node_modules
+dist
+
+# Rust
+src-tauri/target
+
+# Config files (may contain API keys)
+beme.toml
+*.toml.bak
+
+# IDE
+.vscode/settings.json
+.idea
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Bun
+bun.lockb
+
+# Env
+.env
+.env.local
+.env.*.local
