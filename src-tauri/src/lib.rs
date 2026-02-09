@@ -1,5 +1,6 @@
 mod ai;
 mod capture;
+mod settings;
 mod tray;
 
 #[allow(unused_imports)]
@@ -40,7 +41,7 @@ pub fn run() {
                 .with_handler(tray::on_shortcut_event)
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![greet, toggle_capture])
+        .invoke_handler(tauri::generate_handler![greet, toggle_capture, settings::save_settings, settings::load_settings])
         .setup(|app| {
             tray::setup_tray(app)?;
 

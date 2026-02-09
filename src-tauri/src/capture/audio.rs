@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // audio.rs — System audio capture via WASAPI loopback (Windows)
 //
 // Captures what the speakers/headphones are playing using cpal's WASAPI backend.

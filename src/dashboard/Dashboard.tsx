@@ -12,6 +12,7 @@ import {
   type FramePayload,
 } from "../lib/events";
 import { toggleCapture } from "../lib/commands";
+import { initSettings } from "./settingsStore";
 
 /** Dashboard window — shows capture preview, AI suggestions, and status. */
 function Dashboard() {
@@ -30,6 +31,8 @@ function Dashboard() {
   let frameTimestamps: number[] = [];
 
   onMount(async () => {
+    await initSettings();
+
     unlisteners.push(
       await listenCaptureFrame((p: FramePayload) => {
         if (!screenEnabled()) return;

@@ -75,6 +75,7 @@ impl ScreenCapture {
     }
 
     /// Check whether the capture loop is active.
+    #[allow(dead_code)]
     pub fn is_capturing(&self) -> bool {
         self.is_capturing.load(Ordering::SeqCst)
     }
