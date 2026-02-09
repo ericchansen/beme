@@ -1,16 +1,71 @@
-import { createSignal } from "solid-js";
+import { createSignal, onMount, onCleanup } from "solid-js";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import CapturePreview from "./components/CapturePreview";
 import SuggestionPanel from "./components/SuggestionPanel";
 import StatusBar from "./components/StatusBar";
 import ErrorPanel from "./components/ErrorPanel";
+import SettingsPanel from "./components/SettingsPanel";
+import {
+  listenCaptureFrame,
+  listenAudioLevel,
+  listenToggleCapture,
+  type FramePayload,
+} from "../lib/events";
+import { toggleCapture } from "../lib/commands";
 
 /** Dashboard window — shows capture preview, AI suggestions, and status. */
 function Dashboard() {
   const [isCapturing, setIsCapturing] = createSignal(false);
   const [screenEnabled, setScreenEnabled] = createSignal(true);
   const [audioEnabled, setAudioEnabled] = createSignal(true);
-  const [audioLevel] = createSignal(0);
+  const [audioLevel, setAudioLevel] = createSignal(0);
+  const [frameData, setFrameData] = createSignal<string | null>(null);
+  const [filmstrip, setFilmstrip] = createSignal<string[]>([]);
+  const [fps, setFps] = createSignal(0);
+  const [diffPct, setDiffPct] = createSignal(0);
   const [errors] = createSignal<{ id: number; timestamp: string; message: string }[]>([]);
+  const [settingsOpen, setSettingsOpen] = createSignal(false);
+
+  const unlisteners: UnlistenFn[] = [];
+  let frameTimestamps: number[] = [];
+
+  onMount(async () => {
+    unlisteners.push(
+      await listenCaptureFrame((p: FramePayload) => {
+        if (!screenEnabled()) return;
+        setFrameData(p.data);
+        setDiffPct(p.diff_pct);
+        setFilmstrip((prev) => [...prev, p.data].slice(-10));
+
+        const now = Date.now();
+        frameTimestamps.push(now);
+        frameTimestamps = frameTimestamps.filter((t) => now - t < 1000);
+        setFps(frameTimestamps.length);
+      }),
+    );
+
+    unlisteners.push(
+      await listenAudioLevel((p) => {
+        if (!audioEnabled()) return;
+        setAudioLevel(Math.round(p.level * 100));
+      }),
+    );
+
+    unlisteners.push(
+      await listenToggleCapture(() => {
+        setIsCapturing((prev) => !prev);
+      }),
+    );
+  });
+
+  onCleanup(() => {
+    for (const u of unlisteners) u();
+  });
+
+  async function handleToggle() {
+    const newState = await toggleCapture();
+    setIsCapturing(newState);
+  }
 
   return (
     <div class="h-screen flex flex-col bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">
@@ -32,7 +87,7 @@ function Dashboard() {
                 ? "bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/40 dark:text-red-400 dark:hover:bg-red-900/60"
                 : "bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-400 dark:hover:bg-green-900/60"
             }`}
-            onClick={() => setIsCapturing(!isCapturing())}
+            onClick={handleToggle}
           >
             {isCapturing() ? "Stop" : "Start"}
           </button>
@@ -56,13 +111,22 @@ function Dashboard() {
             />
             Audio
           </label>
+
+          {/* Settings */}
+          <button
+            class="p-1.5 rounded-md text-zinc-500 hover:text-zinc-100 hover:bg-zinc-700 transition-colors"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Settings"
+          >
+            ⚙️
+          </button>
         </div>
       </header>
 
       {/* Main content — two-column layout */}
       <main class="flex-1 min-h-0 grid grid-cols-[1.2fr_1fr] gap-4 p-4">
         {/* Left: Capture Preview */}
-        <CapturePreview isCapturing={isCapturing} audioLevel={audioLevel} />
+        <CapturePreview isCapturing={isCapturing} audioLevel={audioLevel} frameData={frameData} filmstrip={filmstrip} />
 
         {/* Right: AI Suggestions */}
         <SuggestionPanel />
@@ -72,7 +136,10 @@ function Dashboard() {
       <ErrorPanel errors={errors} />
 
       {/* Status bar */}
-      <StatusBar />
+      <StatusBar fps={fps} diffPct={diffPct} isCapturing={isCapturing} />
+
+      {/* Settings slide-over */}
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

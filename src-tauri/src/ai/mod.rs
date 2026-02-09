@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 
+pub mod azure_vision;
+pub mod azure_audio;
 pub mod types;
 pub use types::*;
 

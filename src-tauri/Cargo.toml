@@ -29,4 +29,9 @@ xcap = "0.1"
 image = { version = "0.25", features = ["jpeg"] }
 base64 = "0.22"
 cpal = "0.15"
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+futures-util = "0.3"
+url = "2"
+reqwest = { version = "0.12", features = ["stream", "json"] }
+futures = "0.3"
 
