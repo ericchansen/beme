@@ -19,17 +19,6 @@
         "resizable": true,
         "fullscreen": false,
         "url": "/"
-      },
-      {
-        "label": "control-bar",
-        "title": "beme",
-        "width": 220,
-        "height": 48,
-        "resizable": false,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "url": "/control-bar"
       }
     ],
     "security": {
