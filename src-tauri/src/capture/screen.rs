@@ -93,7 +93,11 @@ impl ScreenCapture {
     /// Tauri commands receive shared references, and `tokio::spawn` requires
     /// `'static` data.  We clone the `Arc`s / values we need so the spawned
     /// future owns them independently of `self`.
-    pub async fn start_loop(&self, app_handle: AppHandle) {
+    pub async fn start_loop(
+        &self,
+        app_handle: AppHandle,
+        stream_manager: Option<Arc<crate::stream_manager::StreamManager>>,
+    ) {
         // Clone the pieces we need so the spawned task owns them.
         let flag = Arc::clone(&self.is_capturing);
         let interval = self.interval_ms;
@@ -124,6 +128,11 @@ impl ScreenCapture {
                             payload.height,
                             payload.diff_pct
                         );
+                        // Send frame to AI pipeline if configured
+                        if let Some(ref sm) = stream_manager {
+                            sm.analyze_frame(payload.data.clone(), app_handle.clone());
+                        }
+
                         if let Err(e) = app_handle.emit("capture:frame", &payload) {
                             log::error!("Failed to emit capture:frame: {}", e);
                         }
@@ -293,7 +302,7 @@ fn chrono_now_iso() -> String {
 }
 
 /// Convert days since Unix epoch (1970-01-01) to (year, month, day).
-fn epoch_days_to_ymd(mut days: i64) -> (i64, u32, u32) {
+pub fn epoch_days_to_ymd(mut days: i64) -> (i64, u32, u32) {
     // Shift epoch from 1970-01-01 to 0000-03-01 for easier leap-year math.
     days += 719_468;
     let era = if days >= 0 { days } else { days - 146_096 } / 146_097;
