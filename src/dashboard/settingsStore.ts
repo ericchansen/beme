@@ -1,4 +1,5 @@
 import { createSignal } from "solid-js";
+import { loadSettings as loadSettingsCmd } from "../lib/commands";
 
 export const DEFAULT_VISION_PROMPT =
   "You are an AI assistant observing my screen. Analyze what you see and suggest the single best next action I should take. Be specific and actionable.";
@@ -34,5 +35,15 @@ export const defaultSettings: Settings = {
 };
 
 const [settings, setSettings] = createSignal<Settings>({ ...defaultSettings });
+
+/** Load persisted settings from the Rust backend on startup. */
+export async function initSettings(): Promise<void> {
+  try {
+    const loaded = await loadSettingsCmd();
+    setSettings(loaded);
+  } catch (e) {
+    console.warn("Failed to load settings, using defaults:", e);
+  }
+}
 
 export { settings, setSettings };

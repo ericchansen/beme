@@ -12,6 +12,7 @@ use tauri::{
 static CAPTURING: AtomicBool = AtomicBool::new(false);
 
 /// Returns `true` if we are currently capturing.
+#[allow(dead_code)]
 pub fn is_capturing() -> bool {
     CAPTURING.load(Ordering::SeqCst)
 }

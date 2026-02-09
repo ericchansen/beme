@@ -7,6 +7,7 @@ import {
   DEFAULT_AUDIO_PROMPT,
   type Settings,
 } from "../settingsStore";
+import { saveSettings } from "../../lib/commands";
 
 interface SettingsPanelProps {
   open: () => boolean;
@@ -30,8 +31,16 @@ function SettingsPanel(props: SettingsPanelProps) {
   const patch = (partial: Partial<Settings>) =>
     setDraft((prev) => ({ ...prev, ...partial }));
 
-  const handleSave = () => {
-    setSettings({ ...draft() });
+  const handleSave = async () => {
+    const current = { ...draft() };
+    setSettings(current);
+    try {
+      await saveSettings(current);
+      setToast("Saved!");
+    } catch (e) {
+      setToast("Save failed: " + String(e));
+    }
+    setTimeout(() => setToast(""), 2000);
     props.onClose();
   };
 
