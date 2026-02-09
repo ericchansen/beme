@@ -15,3 +15,18 @@ export function saveSettings(settings: Settings): Promise<void> {
 export function loadSettings(): Promise<Settings> {
   return invoke<Settings>("load_settings");
 }
+
+/** Configure the AI endpoint. Returns true if configuration was accepted. */
+export function configureAi(
+  endpoint: string,
+  apiKey: string,
+  deployment: string,
+  systemPrompt: string,
+): Promise<boolean> {
+  return invoke<boolean>("configure_ai", { endpoint, apiKey, deployment, systemPrompt });
+}
+
+/** Check whether the AI backend is already configured. */
+export function isAiConfigured(): Promise<boolean> {
+  return invoke<boolean>("is_ai_configured");
+}

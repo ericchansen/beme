@@ -1,20 +1,67 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show, onMount, onCleanup } from "solid-js";
+import { listenAiSuggestion, listenAiError, type SuggestionPayload, type AiErrorPayload } from "../../lib/events";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 
 interface Suggestion {
   id: number;
   timestamp: string;
   text: string;
   source: "screen" | "audio";
+  done: boolean;
 }
+
+const MAX_SUGGESTIONS = 20;
 
 /** Right column: two-tab AI suggestion log (Screen / Audio). */
 function SuggestionPanel() {
   const [activeTab, setActiveTab] = createSignal<"screen" | "audio">("screen");
+  const [suggestions, setSuggestions] = createSignal<Suggestion[]>([]);
+  const [aiErrors, setAiErrors] = createSignal<{ message: string; timestamp: string }[]>([]);
 
-  // Placeholder data — will be replaced with real suggestions later
-  const suggestions: Suggestion[] = [];
+  const unlisteners: UnlistenFn[] = [];
 
-  const filtered = () => suggestions.filter((s) => s.source === activeTab());
+  onMount(async () => {
+    unlisteners.push(
+      await listenAiSuggestion((p: SuggestionPayload) => {
+        setSuggestions((prev) => {
+          const existing = prev.find((s) => s.id === p.id);
+          let updated: Suggestion[];
+          if (existing) {
+            updated = prev.map((s) =>
+              s.id === p.id
+                ? { ...s, text: s.text + p.text, done: p.done }
+                : s,
+            );
+          } else {
+            updated = [
+              {
+                id: p.id,
+                timestamp: p.timestamp,
+                text: p.text,
+                source: p.source as "screen" | "audio",
+                done: p.done,
+              },
+              ...prev,
+            ];
+          }
+          // Keep newest first, cap at MAX_SUGGESTIONS
+          return updated.slice(0, MAX_SUGGESTIONS);
+        });
+      }),
+    );
+
+    unlisteners.push(
+      await listenAiError((p: AiErrorPayload) => {
+        setAiErrors((prev) => [{ message: p.message, timestamp: p.timestamp }, ...prev].slice(0, 10));
+      }),
+    );
+  });
+
+  onCleanup(() => {
+    for (const u of unlisteners) u();
+  });
+
+  const filtered = () => suggestions().filter((s) => s.source === activeTab());
 
   return (
     <section class="flex flex-col min-h-0 h-full">
@@ -42,6 +89,20 @@ function SuggestionPanel() {
         </button>
       </div>
 
+      {/* Inline AI errors */}
+      <Show when={aiErrors().length > 0}>
+        <div class="px-3 pt-2">
+          <For each={aiErrors()}>
+            {(err) => (
+              <div class="text-xs text-red-600 dark:text-red-400 mb-1">
+                <span class="text-zinc-400 mr-2">{err.timestamp}</span>
+                {err.message}
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+
       {/* Suggestion list */}
       <div class="flex-1 min-h-0 overflow-y-auto p-3">
         <Show
@@ -68,17 +129,22 @@ function SuggestionEntry(props: { suggestion: Suggestion }) {
     <li class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 p-3 text-sm">
       <div class="flex items-center justify-between mb-1">
         <span class="text-[10px] text-zinc-400">{props.suggestion.timestamp}</span>
-        <span
-          class={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-            props.suggestion.source === "screen"
-              ? "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300"
-              : "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300"
-          }`}
-        >
-          {props.suggestion.source}
-        </span>
+        <div class="flex items-center gap-1.5">
+          <Show when={!props.suggestion.done}>
+            <span class="text-[10px] text-yellow-600 dark:text-yellow-400 animate-pulse">streaming…</span>
+          </Show>
+          <span
+            class={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+              props.suggestion.source === "screen"
+                ? "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300"
+                : "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300"
+            }`}
+          >
+            {props.suggestion.source}
+          </span>
+        </div>
       </div>
-      <p class="text-zinc-700 dark:text-zinc-300">{props.suggestion.text}</p>
+      <p class="text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{props.suggestion.text}</p>
     </li>
   );
 }

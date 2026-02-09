@@ -46,3 +46,28 @@ export function listenToggleCapture(
 ): Promise<UnlistenFn> {
   return listen<ToggleCapturePayload>("toggle:capture", (e) => cb(e.payload));
 }
+
+export interface SuggestionPayload {
+  text: string;
+  timestamp: string;
+  done: boolean;
+  id: number;
+  source: string;
+}
+
+export interface AiErrorPayload {
+  message: string;
+  timestamp: string;
+}
+
+export function listenAiSuggestion(
+  cb: (payload: SuggestionPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<SuggestionPayload>("ai:suggestion", (e) => cb(e.payload));
+}
+
+export function listenAiError(
+  cb: (payload: AiErrorPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<AiErrorPayload>("ai:error", (e) => cb(e.payload));
+}

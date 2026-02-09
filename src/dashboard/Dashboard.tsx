@@ -9,6 +9,7 @@ import {
   listenCaptureFrame,
   listenAudioLevel,
   listenToggleCapture,
+  listenAiError,
   type FramePayload,
 } from "../lib/events";
 import { toggleCapture } from "../lib/commands";
@@ -24,7 +25,7 @@ function Dashboard() {
   const [filmstrip, setFilmstrip] = createSignal<string[]>([]);
   const [fps, setFps] = createSignal(0);
   const [diffPct, setDiffPct] = createSignal(0);
-  const [errors] = createSignal<{ id: number; timestamp: string; message: string }[]>([]);
+  const [errors, setErrors] = createSignal<{ id: number; timestamp: string; message: string }[]>([]);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   const unlisteners: UnlistenFn[] = [];
@@ -57,6 +58,15 @@ function Dashboard() {
     unlisteners.push(
       await listenToggleCapture(() => {
         setIsCapturing((prev) => !prev);
+      }),
+    );
+
+    unlisteners.push(
+      await listenAiError((p) => {
+        setErrors((prev) => [
+          ...prev,
+          { id: Date.now(), timestamp: p.timestamp, message: p.message },
+        ]);
       }),
     );
   });
