@@ -43,6 +43,18 @@ fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("settings.toml"))
 }
 
+impl Settings {
+    /// Load settings from the app config directory (non-command helper).
+    pub fn load_from_app(app: &tauri::AppHandle) -> Result<Self, String> {
+        let path = config_path(app)?;
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+        let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        toml::from_str(&content).map_err(|e| e.to_string())
+    }
+}
+
 #[tauri::command]
 pub async fn save_settings(app: tauri::AppHandle, settings: Settings) -> Result<(), String> {
     let path = config_path(&app)?;
