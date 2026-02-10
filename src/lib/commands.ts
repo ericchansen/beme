@@ -16,14 +16,15 @@ export function loadSettings(): Promise<Settings> {
   return invoke<Settings>("load_settings");
 }
 
-/** Configure the AI endpoint. Returns true if configuration was accepted. */
+/** Configure the AI endpoint. */
 export function configureAi(
   endpoint: string,
   apiKey: string,
   deployment: string,
   systemPrompt: string,
-): Promise<boolean> {
-  return invoke<boolean>("configure_ai", { endpoint, apiKey, deployment, systemPrompt });
+  useBearer?: boolean,
+): Promise<void> {
+  return invoke<void>("configure_ai", { endpoint, apiKey, deployment, systemPrompt, useBearer: useBearer ?? false });
 }
 
 /** Check whether the AI backend is already configured. */

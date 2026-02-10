@@ -13,6 +13,7 @@ export interface Settings {
   apiKey: string;
   visionDeployment: string;
   audioDeployment: string;
+  useBearer: boolean;
   // Capture
   captureInterval: number;
   screenshotMaxWidth: number;
@@ -27,6 +28,7 @@ export const defaultSettings: Settings = {
   apiKey: "",
   visionDeployment: "gpt-4o",
   audioDeployment: "gpt-4o-realtime-preview",
+  useBearer: false,
   captureInterval: 2,
   screenshotMaxWidth: 1024,
   frameDiffThreshold: 5,

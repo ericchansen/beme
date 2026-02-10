@@ -7,7 +7,7 @@ import {
   DEFAULT_AUDIO_PROMPT,
   type Settings,
 } from "../settingsStore";
-import { saveSettings } from "../../lib/commands";
+import { saveSettings, configureAi } from "../../lib/commands";
 
 interface SettingsPanelProps {
   open: () => boolean;
@@ -36,6 +36,16 @@ function SettingsPanel(props: SettingsPanelProps) {
     setSettings(current);
     try {
       await saveSettings(current);
+      // Also configure the AI provider with the new settings
+      if (current.endpoint && (current.apiKey || current.useBearer)) {
+        await configureAi(
+          current.endpoint,
+          current.apiKey,
+          current.visionDeployment,
+          current.visionPrompt,
+          current.useBearer,
+        );
+      }
       setToast("Saved!");
     } catch (e) {
       setToast("Save failed: " + String(e));
@@ -134,6 +144,18 @@ function SettingsPanel(props: SettingsPanelProps) {
                 value={draft().audioDeployment}
                 onInput={(e) => patch({ audioDeployment: e.currentTarget.value })}
               />
+            </div>
+
+            <div>
+              <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  class="accent-blue-500"
+                  checked={draft().useBearer}
+                  onChange={() => patch({ useBearer: !draft().useBearer })}
+                />
+                Use Bearer Token (Entra ID) instead of API Key
+              </label>
             </div>
           </section>
 

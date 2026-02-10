@@ -11,6 +11,8 @@ pub struct AzureVisionClient {
     deployment: String,
     system_prompt: String,
     client: Client,
+    /// When true, use `Authorization: Bearer` instead of `api-key` header.
+    use_bearer: bool,
 }
 
 impl AzureVisionClient {
@@ -26,7 +28,14 @@ impl AzureVisionClient {
             deployment: deployment.into(),
             system_prompt: system_prompt.into(),
             client: Client::new(),
+            use_bearer: false,
         }
+    }
+
+    /// Create a client that uses Bearer token auth (for Entra ID / AAD).
+    pub fn with_bearer(mut self) -> Self {
+        self.use_bearer = true;
+        self
     }
 
     fn build_request_body(
@@ -95,11 +104,18 @@ impl AiProvider for AzureVisionClient {
 
         let body = self.build_request_body(frame_data, system_prompt, context);
 
-        let response = self
+        let mut req = self
             .client
             .post(&url)
-            .header("api-key", &self.api_key)
-            .header("Content-Type", "application/json")
+            .header("Content-Type", "application/json");
+
+        req = if self.use_bearer {
+            req.header("Authorization", format!("Bearer {}", self.api_key))
+        } else {
+            req.header("api-key", &self.api_key)
+        };
+
+        let response = req
             .json(&body)
             .send()
             .await

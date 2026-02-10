@@ -11,6 +11,8 @@ pub struct Settings {
     pub api_key: String,
     pub vision_deployment: String,
     pub audio_deployment: String,
+    #[serde(default)]
+    pub use_bearer: bool,
     pub capture_interval: f64,
     pub screenshot_max_width: u32,
     pub frame_diff_threshold: u32,
@@ -25,6 +27,7 @@ impl Default for Settings {
             api_key: String::new(),
             vision_deployment: "gpt-4o".into(),
             audio_deployment: "gpt-4o-realtime-preview".into(),
+            use_bearer: false,
             capture_interval: 2.0,
             screenshot_max_width: 1024,
             frame_diff_threshold: 5,
