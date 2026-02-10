@@ -67,6 +67,7 @@ impl StreamManager {
         }
         *self.provider.lock().unwrap() = Some(Arc::new(client));
         *self.system_prompt.lock().unwrap() = system_prompt.to_string();
+        self.context.lock().unwrap().clear();
         log::info!("StreamManager: Azure vision provider configured (bearer={})", use_bearer);
     }
 
@@ -253,5 +254,62 @@ mod tests {
         assert_eq!(&ts[4..5], "-");
         assert_eq!(&ts[7..8], "-");
         assert_eq!(&ts[10..11], "T");
+    }
+
+    #[test]
+    fn rolling_context_caps_at_max() {
+        let sm = StreamManager::new();
+        {
+            let mut ctx = sm.context.lock().unwrap();
+            // Push 4 pairs (8 entries) — should trim to max_context*2 = 6
+            for i in 0..4 {
+                ctx.push(ConversationEntry {
+                    role: Role::User,
+                    content: format!("user-{i}"),
+                    timestamp: now_iso(),
+                    source: CaptureSource::Screen,
+                });
+                ctx.push(ConversationEntry {
+                    role: Role::Assistant,
+                    content: format!("assistant-{i}"),
+                    timestamp: now_iso(),
+                    source: CaptureSource::Screen,
+                });
+            }
+            while ctx.len() > sm.max_context * 2 {
+                ctx.remove(0);
+            }
+        }
+        let ctx = sm.context.lock().unwrap();
+        assert_eq!(ctx.len(), 6);
+        // Oldest pair (user-0/assistant-0) should be evicted
+        assert_eq!(ctx[0].content, "user-1");
+        assert_eq!(ctx[1].content, "assistant-1");
+    }
+
+    #[test]
+    fn configure_azure_clears_context() {
+        let sm = StreamManager::new();
+        // Seed some context
+        {
+            let mut ctx = sm.context.lock().unwrap();
+            ctx.push(ConversationEntry {
+                role: Role::User,
+                content: "old".into(),
+                timestamp: now_iso(),
+                source: CaptureSource::Screen,
+            });
+        }
+        assert_eq!(sm.context.lock().unwrap().len(), 1);
+
+        // Reconfigure — context should be cleared
+        sm.configure_azure(
+            "https://test.openai.azure.com",
+            "key",
+            "gpt-4o",
+            "prompt",
+            false,
+        );
+        assert_eq!(sm.context.lock().unwrap().len(), 0);
     }
 }
