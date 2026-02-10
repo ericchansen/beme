@@ -83,6 +83,15 @@ pub fn run() {
             app.global_shortcut().register("ctrl+shift+b")?;
             log::info!("Global shortcut Ctrl+Shift+B registered");
 
+            // Auto-configure AI provider from saved settings
+            let sm = app.state::<Arc<stream_manager::StreamManager>>();
+            if let Ok(s) = settings::Settings::load_from_app(app.handle()) {
+                if !s.endpoint.is_empty() && !s.api_key.is_empty() {
+                    sm.configure_azure(&s.endpoint, &s.api_key, &s.vision_deployment, &s.vision_prompt, s.use_bearer);
+                    log::info!("AI provider auto-configured from saved settings");
+                }
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())
