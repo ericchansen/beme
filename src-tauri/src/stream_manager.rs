@@ -59,11 +59,15 @@ impl StreamManager {
         api_key: &str,
         deployment: &str,
         system_prompt: &str,
+        use_bearer: bool,
     ) {
-        let client = AzureVisionClient::new(endpoint, api_key, deployment, system_prompt);
+        let mut client = AzureVisionClient::new(endpoint, api_key, deployment, system_prompt);
+        if use_bearer {
+            client = client.with_bearer();
+        }
         *self.provider.lock().unwrap() = Some(Arc::new(client));
         *self.system_prompt.lock().unwrap() = system_prompt.to_string();
-        log::info!("StreamManager: Azure vision provider configured");
+        log::info!("StreamManager: Azure vision provider configured (bearer={})", use_bearer);
     }
 
     /// Check if a provider is configured.
@@ -218,6 +222,7 @@ mod tests {
             "test-key",
             "gpt-4o",
             "You are helpful.",
+            false,
         );
         assert!(sm.is_configured());
     }

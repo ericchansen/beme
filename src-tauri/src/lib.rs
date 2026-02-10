@@ -40,8 +40,9 @@ async fn configure_ai(
     api_key: String,
     deployment: String,
     system_prompt: String,
+    use_bearer: Option<bool>,
 ) -> Result<(), String> {
-    state.configure_azure(&endpoint, &api_key, &deployment, &system_prompt);
+    state.configure_azure(&endpoint, &api_key, &deployment, &system_prompt, use_bearer.unwrap_or(false));
     Ok(())
 }
 
