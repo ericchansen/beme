@@ -43,7 +43,13 @@ export function configureAi(
   systemPrompt: string,
   useBearer?: boolean,
 ): Promise<void> {
-  return invoke<void>("configure_ai", { endpoint, apiKey, deployment, systemPrompt, useBearer: useBearer ?? false });
+  return invoke<void>("configure_ai", {
+    endpoint,
+    apiKey,
+    deployment,
+    systemPrompt,
+    useBearer: useBearer ?? false,
+  });
 }
 
 /** Check whether the AI backend is already configured. */

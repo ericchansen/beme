@@ -68,7 +68,8 @@ function SettingsPanel(props: SettingsPanelProps) {
     "w-full bg-gray-700 border border-gray-600 text-white rounded px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500";
   const labelClass = "block text-sm font-medium text-gray-300 mb-1";
   const sectionClass = "space-y-3";
-  const headingClass = "text-sm font-semibold text-gray-400 uppercase tracking-wide";
+  const headingClass =
+    "text-sm font-semibold text-gray-400 uppercase tracking-wide";
 
   return (
     <Show when={isOpen()}>
@@ -132,7 +133,9 @@ function SettingsPanel(props: SettingsPanelProps) {
                 type="text"
                 class={inputClass}
                 value={draft().visionDeployment}
-                onInput={(e) => patch({ visionDeployment: e.currentTarget.value })}
+                onInput={(e) =>
+                  patch({ visionDeployment: e.currentTarget.value })
+                }
               />
             </div>
 
@@ -142,7 +145,9 @@ function SettingsPanel(props: SettingsPanelProps) {
                 type="text"
                 class={inputClass}
                 value={draft().audioDeployment}
-                onInput={(e) => patch({ audioDeployment: e.currentTarget.value })}
+                onInput={(e) =>
+                  patch({ audioDeployment: e.currentTarget.value })
+                }
               />
             </div>
 
@@ -164,7 +169,9 @@ function SettingsPanel(props: SettingsPanelProps) {
             <h3 class={headingClass}>Capture Settings</h3>
 
             <div>
-              <label class={labelClass}>Screen Capture Interval (seconds)</label>
+              <label class={labelClass}>
+                Screen Capture Interval (seconds)
+              </label>
               <input
                 type="number"
                 class={inputClass}
@@ -173,7 +180,11 @@ function SettingsPanel(props: SettingsPanelProps) {
                 step={0.5}
                 value={draft().captureInterval}
                 onInput={(e) =>
-                  patch({ captureInterval: parseFloat(e.currentTarget.value) || defaultSettings.captureInterval })
+                  patch({
+                    captureInterval:
+                      parseFloat(e.currentTarget.value) ||
+                      defaultSettings.captureInterval,
+                  })
                 }
               />
             </div>
@@ -188,14 +199,19 @@ function SettingsPanel(props: SettingsPanelProps) {
                 step={64}
                 value={draft().screenshotMaxWidth}
                 onInput={(e) =>
-                  patch({ screenshotMaxWidth: parseInt(e.currentTarget.value, 10) || defaultSettings.screenshotMaxWidth })
+                  patch({
+                    screenshotMaxWidth:
+                      parseInt(e.currentTarget.value, 10) ||
+                      defaultSettings.screenshotMaxWidth,
+                  })
                 }
               />
             </div>
 
             <div>
               <label class={labelClass}>
-                Frame Diff Threshold — skip frames with &lt; {draft().frameDiffThreshold}% difference
+                Frame Diff Threshold — skip frames with &lt;{" "}
+                {draft().frameDiffThreshold}% difference
               </label>
               <input
                 type="range"
@@ -205,7 +221,9 @@ function SettingsPanel(props: SettingsPanelProps) {
                 step={1}
                 value={draft().frameDiffThreshold}
                 onInput={(e) =>
-                  patch({ frameDiffThreshold: parseInt(e.currentTarget.value, 10) })
+                  patch({
+                    frameDiffThreshold: parseInt(e.currentTarget.value, 10),
+                  })
                 }
               />
               <div class="flex justify-between text-xs text-gray-500">
@@ -235,7 +253,9 @@ function SettingsPanel(props: SettingsPanelProps) {
 
             <div>
               <div class="flex items-center justify-between mb-1">
-                <label class="text-sm font-medium text-gray-300">Vision System Prompt</label>
+                <label class="text-sm font-medium text-gray-300">
+                  Vision System Prompt
+                </label>
                 <button
                   type="button"
                   class="text-xs text-blue-400 hover:text-blue-300"
@@ -254,7 +274,9 @@ function SettingsPanel(props: SettingsPanelProps) {
 
             <div>
               <div class="flex items-center justify-between mb-1">
-                <label class="text-sm font-medium text-gray-300">Audio System Prompt</label>
+                <label class="text-sm font-medium text-gray-300">
+                  Audio System Prompt
+                </label>
                 <button
                   type="button"
                   class="text-xs text-blue-400 hover:text-blue-300"

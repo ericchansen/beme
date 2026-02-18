@@ -34,16 +34,16 @@ function ErrorPanel(props: ErrorPanelProps) {
         <div class="max-h-40 overflow-y-auto border-t border-zinc-200 dark:border-zinc-700">
           <Show
             when={props.errors().length > 0}
-            fallback={
-              <p class="px-4 py-3 text-xs text-zinc-400">No errors.</p>
-            }
+            fallback={<p class="px-4 py-3 text-xs text-zinc-400">No errors.</p>}
           >
             <ul class="divide-y divide-zinc-100 dark:divide-zinc-800">
               <For each={props.errors()}>
                 {(err) => (
                   <li class="px-4 py-2 text-xs flex gap-3">
                     <span class="text-zinc-400 shrink-0">{err.timestamp}</span>
-                    <span class="text-red-600 dark:text-red-400">{err.message}</span>
+                    <span class="text-red-600 dark:text-red-400">
+                      {err.message}
+                    </span>
                   </li>
                 )}
               </For>

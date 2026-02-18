@@ -1,6 +1,13 @@
 import { createSignal, For, Show, onMount, onCleanup } from "solid-js";
 import { marked } from "marked";
-import { listenAiSuggestion, listenAiError, listenAudioStatus, type SuggestionPayload, type AiErrorPayload, type AudioStatusPayload } from "../../lib/events";
+import {
+  listenAiSuggestion,
+  listenAiError,
+  listenAudioStatus,
+  type SuggestionPayload,
+  type AiErrorPayload,
+  type AudioStatusPayload,
+} from "../../lib/events";
 import { getPrompts, updatePrompt } from "../../lib/commands";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
@@ -17,18 +24,28 @@ const MAX_SUGGESTIONS = 20;
 /** Right columns: side-by-side Screen & Audio AI suggestion panels. */
 function SuggestionPanel() {
   const [suggestions, setSuggestions] = createSignal<Suggestion[]>([]);
-  const [aiErrors, setAiErrors] = createSignal<{ message: string; timestamp: string }[]>([]);
-  const [audioStatus, setAudioStatus] = createSignal<AudioStatusPayload>({ status: "disconnected", message: null });
+  const [aiErrors, setAiErrors] = createSignal<
+    { message: string; timestamp: string }[]
+  >([]);
+  const [audioStatus, setAudioStatus] = createSignal<AudioStatusPayload>({
+    status: "disconnected",
+    message: null,
+  });
   const [visionPrompt, setVisionPrompt] = createSignal("");
   const [audioPrompt, setAudioPrompt] = createSignal("");
-  const [visionSaveStatus, setVisionSaveStatus] = createSignal<"idle" | "saving" | "saved">("idle");
-  const [audioSaveStatus, setAudioSaveStatus] = createSignal<"idle" | "saving" | "saved">("idle");
+  const [visionSaveStatus, setVisionSaveStatus] = createSignal<
+    "idle" | "saving" | "saved"
+  >("idle");
+  const [audioSaveStatus, setAudioSaveStatus] = createSignal<
+    "idle" | "saving" | "saved"
+  >("idle");
 
   let visionTimer: ReturnType<typeof setTimeout> | undefined;
   let audioTimer: ReturnType<typeof setTimeout> | undefined;
 
   function handlePromptChange(source: "vision" | "audio", value: string) {
-    const setStatus = source === "vision" ? setVisionSaveStatus : setAudioSaveStatus;
+    const setStatus =
+      source === "vision" ? setVisionSaveStatus : setAudioSaveStatus;
     const setPrompt = source === "vision" ? setVisionPrompt : setAudioPrompt;
 
     setPrompt(value);
@@ -79,9 +96,7 @@ function SuggestionPanel() {
           let updated: Suggestion[];
           if (existing) {
             updated = prev.map((s) =>
-              s.id === p.id
-                ? { ...s, text: s.text + p.text, done: p.done }
-                : s,
+              s.id === p.id ? { ...s, text: s.text + p.text, done: p.done } : s,
             );
           } else {
             updated = [
@@ -102,7 +117,12 @@ function SuggestionPanel() {
 
     unlisteners.push(
       await listenAiError((p: AiErrorPayload) => {
-        setAiErrors((prev) => [{ message: p.message, timestamp: p.timestamp }, ...prev].slice(0, 10));
+        setAiErrors((prev) =>
+          [{ message: p.message, timestamp: p.timestamp }, ...prev].slice(
+            0,
+            10,
+          ),
+        );
       }),
     );
 
@@ -117,8 +137,10 @@ function SuggestionPanel() {
     for (const u of unlisteners) u();
   });
 
-  const screenSuggestions = () => suggestions().filter((s) => s.source === "screen");
-  const audioSuggestions = () => suggestions().filter((s) => s.source === "audio");
+  const screenSuggestions = () =>
+    suggestions().filter((s) => s.source === "screen");
+  const audioSuggestions = () =>
+    suggestions().filter((s) => s.source === "audio");
 
   return (
     <>
@@ -176,11 +198,17 @@ function PromptEditor(props: {
   return (
     <div class="shrink-0 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50">
       <div class="flex items-center justify-between px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-700">
-        <span class={`text-xs font-semibold ${props.accentColor}`}>{props.label}</span>
+        <span class={`text-xs font-semibold ${props.accentColor}`}>
+          {props.label}
+        </span>
         <Show when={props.saveStatus !== "idle"}>
-          <span class={`text-[10px] ${
-            props.saveStatus === "saving" ? "text-yellow-500" : "text-green-500"
-          }`}>
+          <span
+            class={`text-[10px] ${
+              props.saveStatus === "saving"
+                ? "text-yellow-500"
+                : "text-green-500"
+            }`}
+          >
             {props.saveStatus === "saving" ? "Saving..." : "✓ Saved"}
           </span>
         </Show>
@@ -212,7 +240,9 @@ function SuggestionColumn(props: {
     <section class="flex flex-col min-h-0 flex-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50">
       {/* Column header */}
       <div class="flex items-center gap-1.5 px-3 py-2 border-b border-zinc-200 dark:border-zinc-700 shrink-0">
-        <span class={`text-sm font-semibold ${props.titleColor}`}>{props.title}</span>
+        <span class={`text-sm font-semibold ${props.titleColor}`}>
+          {props.title}
+        </span>
         {props.statusDot}
       </div>
 
@@ -262,24 +292,37 @@ function SuggestionColumn(props: {
 function AudioStatusDot(props: { status: string }) {
   const color = () => {
     switch (props.status) {
-      case "connected": return "bg-green-500";
-      case "connecting": return "bg-yellow-400 animate-pulse";
-      case "error": return "bg-red-500";
-      default: return "bg-zinc-400";
+      case "connected":
+        return "bg-green-500";
+      case "connecting":
+        return "bg-yellow-400 animate-pulse";
+      case "error":
+        return "bg-red-500";
+      default:
+        return "bg-zinc-400";
     }
   };
 
-  return <span class={`inline-block w-2 h-2 rounded-full ${color()}`} title={props.status} />;
+  return (
+    <span
+      class={`inline-block w-2 h-2 rounded-full ${color()}`}
+      title={props.status}
+    />
+  );
 }
 
 function SuggestionEntry(props: { suggestion: Suggestion }) {
   return (
     <li class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 p-3 text-sm">
       <div class="flex items-center justify-between mb-1">
-        <span class="text-[10px] text-zinc-400">{props.suggestion.timestamp}</span>
+        <span class="text-[10px] text-zinc-400">
+          {props.suggestion.timestamp}
+        </span>
         <div class="flex items-center gap-1.5">
           <Show when={!props.suggestion.done}>
-            <span class="text-[10px] text-yellow-600 dark:text-yellow-400 animate-pulse">streaming…</span>
+            <span class="text-[10px] text-yellow-600 dark:text-yellow-400 animate-pulse">
+              streaming…
+            </span>
           </Show>
           <span
             class={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
@@ -294,7 +337,9 @@ function SuggestionEntry(props: { suggestion: Suggestion }) {
       </div>
       <div
         class="text-zinc-700 dark:text-zinc-300 suggestion-prose text-sm"
-        innerHTML={marked.parse(props.suggestion.text, { async: false }) as string}
+        innerHTML={
+          marked.parse(props.suggestion.text, { async: false }) as string
+        }
       />
     </li>
   );

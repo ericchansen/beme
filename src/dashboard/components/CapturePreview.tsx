@@ -34,7 +34,9 @@ function CapturePreview(props: CapturePreviewProps) {
           when={props.frameData()}
           fallback={
             <span class="text-zinc-400 text-sm select-none">
-              {props.isCapturing() ? "Waiting for frames…" : "No frames captured"}
+              {props.isCapturing()
+                ? "Waiting for frames…"
+                : "No frames captured"}
             </span>
           }
         >

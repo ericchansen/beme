@@ -9,17 +9,26 @@
   margin-top: 0.5em;
   margin-bottom: 0.25em;
 }
-.suggestion-prose h3 { font-size: 0.95rem; }
-.suggestion-prose p { margin: 0.25em 0; }
-.suggestion-prose ul, .suggestion-prose ol {
+.suggestion-prose h3 {
+  font-size: 0.95rem;
+}
+.suggestion-prose p {
+  margin: 0.25em 0;
+}
+.suggestion-prose ul,
+.suggestion-prose ol {
   padding-left: 1.25em;
   margin: 0.25em 0;
 }
-.suggestion-prose li { margin: 0.1em 0; }
+.suggestion-prose li {
+  margin: 0.1em 0;
+}
 .suggestion-prose code {
-  background: rgba(127,127,127,0.15);
+  background: rgba(127, 127, 127, 0.15);
   padding: 0.1em 0.3em;
   border-radius: 3px;
   font-size: 0.85em;
 }
-.suggestion-prose strong { font-weight: 600; }
+.suggestion-prose strong {
+  font-weight: 600;
+}

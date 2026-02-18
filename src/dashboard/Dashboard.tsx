@@ -12,7 +12,18 @@ import {
   listenAiError,
   type FramePayload,
 } from "../lib/events";
-import { toggleCapture, toggleAudioCapture, startAudioAi, stopAudioAi, listMonitors, selectMonitor, listAudioDevices, selectAudioDevice, type MonitorInfo, type AudioDeviceInfo } from "../lib/commands";
+import {
+  toggleCapture,
+  toggleAudioCapture,
+  startAudioAi,
+  stopAudioAi,
+  listMonitors,
+  selectMonitor,
+  listAudioDevices,
+  selectAudioDevice,
+  type MonitorInfo,
+  type AudioDeviceInfo,
+} from "../lib/commands";
 import { initSettings } from "./settingsStore";
 
 /** Dashboard window — shows capture preview, AI suggestions, and status. */
@@ -25,12 +36,18 @@ function Dashboard() {
   const [filmstrip, setFilmstrip] = createSignal<string[]>([]);
   const [fps, setFps] = createSignal(0);
   const [diffPct, setDiffPct] = createSignal(0);
-  const [errors, setErrors] = createSignal<{ id: number; timestamp: string; message: string }[]>([]);
+  const [errors, setErrors] = createSignal<
+    { id: number; timestamp: string; message: string }[]
+  >([]);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [monitors, setMonitors] = createSignal<MonitorInfo[]>([]);
-  const [selectedMonitorId, setSelectedMonitorId] = createSignal<number | null>(null);
+  const [selectedMonitorId, setSelectedMonitorId] = createSignal<number | null>(
+    null,
+  );
   const [audioDevices, setAudioDevices] = createSignal<AudioDeviceInfo[]>([]);
-  const [selectedAudioDevice, setSelectedAudioDevice] = createSignal<string | null>(null);
+  const [selectedAudioDevice, setSelectedAudioDevice] = createSignal<
+    string | null
+  >(null);
 
   const unlisteners: UnlistenFn[] = [];
   let frameTimestamps: number[] = [];
@@ -104,9 +121,17 @@ function Dashboard() {
     if (audioEnabled()) {
       if (newState) {
         await toggleAudioCapture();
-        try { await startAudioAi(); } catch (e) { console.error("Failed to start audio AI:", e); }
+        try {
+          await startAudioAi();
+        } catch (e) {
+          console.error("Failed to start audio AI:", e);
+        }
       } else {
-        try { await stopAudioAi(); } catch (e) { console.error("Failed to stop audio AI:", e); }
+        try {
+          await stopAudioAi();
+        } catch (e) {
+          console.error("Failed to stop audio AI:", e);
+        }
         await toggleAudioCapture();
       }
     }
@@ -118,9 +143,17 @@ function Dashboard() {
     if (!isCapturing()) return; // Only start/stop audio if currently capturing
     if (newEnabled) {
       await toggleAudioCapture();
-      try { await startAudioAi(); } catch (e) { console.error("Failed to start audio AI:", e); }
+      try {
+        await startAudioAi();
+      } catch (e) {
+        console.error("Failed to start audio AI:", e);
+      }
     } else {
-      try { await stopAudioAi(); } catch (e) { console.error("Failed to stop audio AI:", e); }
+      try {
+        await stopAudioAi();
+      } catch (e) {
+        console.error("Failed to stop audio AI:", e);
+      }
       await toggleAudioCapture();
     }
   }
@@ -134,7 +167,9 @@ function Dashboard() {
         <div class="flex items-center gap-4">
           {/* Status indicator */}
           <span class="flex items-center gap-1.5">
-            <span class={`inline-block w-2.5 h-2.5 rounded-full ${isCapturing() ? "bg-green-500 animate-pulse" : "bg-zinc-400"}`} />
+            <span
+              class={`inline-block w-2.5 h-2.5 rounded-full ${isCapturing() ? "bg-green-500 animate-pulse" : "bg-zinc-400"}`}
+            />
             <span class="text-sm">{isCapturing() ? "Capturing" : "Idle"}</span>
           </span>
 
@@ -175,7 +210,8 @@ function Dashboard() {
             >
               {monitors().map((m) => (
                 <option value={m.id}>
-                  {m.name || `Display ${m.id}`} ({m.width}×{m.height}){m.is_primary ? " ★" : ""}
+                  {m.name || `Display ${m.id}`} ({m.width}×{m.height})
+                  {m.is_primary ? " ★" : ""}
                 </option>
               ))}
             </select>
@@ -204,7 +240,8 @@ function Dashboard() {
               <option value="">Default Audio</option>
               {audioDevices().map((d) => (
                 <option value={d.name}>
-                  {d.name}{d.is_default ? " ★" : ""}
+                  {d.name}
+                  {d.is_default ? " ★" : ""}
                 </option>
               ))}
             </select>
@@ -224,7 +261,12 @@ function Dashboard() {
       {/* Main content — two-column layout */}
       <main class="flex-1 min-h-0 grid grid-cols-[1fr_1fr_1fr] gap-4 p-4">
         {/* Left: Capture Preview */}
-        <CapturePreview isCapturing={isCapturing} audioLevel={audioLevel} frameData={frameData} filmstrip={filmstrip} />
+        <CapturePreview
+          isCapturing={isCapturing}
+          audioLevel={audioLevel}
+          frameData={frameData}
+          filmstrip={filmstrip}
+        />
 
         {/* Center + Right: AI Suggestions (side-by-side) */}
         <div class="col-span-2 grid grid-cols-2 gap-4 min-h-0">
@@ -239,7 +281,10 @@ function Dashboard() {
       <StatusBar fps={fps} diffPct={diffPct} isCapturing={isCapturing} />
 
       {/* Settings slide-over */}
-      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
     </div>
   );
 }
