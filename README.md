@@ -1,6 +1,8 @@
 # beme
 
-A desktop app that captures your screen in near real-time and streams it to Azure OpenAI GPT-4o for **next best action** suggestions. Built with Tauri 2 and SolidJS.
+[![CI](https://github.com/ericchansen/beme/actions/workflows/ci.yml/badge.svg)](https://github.com/ericchansen/beme/actions/workflows/ci.yml)
+
+A desktop app that capturesyour screen in near real-time and streams it to Azure OpenAI GPT-4o for **next best action** suggestions. Built with Tauri 2 and SolidJS.
 
 ## Features
 
