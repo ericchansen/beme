@@ -1,5 +1,9 @@
 #![allow(dead_code)]
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
+
+/// Type alias for the channel that delivers parsed text responses from an audio session.
+pub type AudioResponseRx = mpsc::Receiver<Result<String, AiError>>;
 
 /// A previous interaction for context
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,11 +52,8 @@ pub trait TextStream: Send {
 /// Trait for bidirectional audio sessions
 #[async_trait::async_trait]
 pub trait AudioSession: Send {
-    /// Send an audio chunk (base64 PCM) to the AI
+    /// Send an audio chunk (raw PCM bytes) to the AI
     async fn send_audio(&mut self, audio_data: &[u8]) -> Result<(), AiError>;
-
-    /// Receive the next text response chunk
-    async fn next_response(&mut self) -> Option<Result<String, AiError>>;
 
     /// Close the audio session
     async fn close(&mut self) -> Result<(), AiError>;

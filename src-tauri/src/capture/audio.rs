@@ -13,6 +13,38 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde::Serialize;
 use tauri::Emitter;
 
+// ─── Device enumeration ────────────────────────────────────────────────────────
+
+/// Descriptor for an audio output device.
+#[derive(Debug, Clone, Serialize)]
+pub struct AudioDeviceInfo {
+    /// Device name (from cpal)
+    pub name: String,
+    /// Whether this is the system default output device
+    pub is_default: bool,
+}
+
+/// List all available audio output devices.
+pub fn list_audio_devices() -> Result<Vec<AudioDeviceInfo>, String> {
+    let host = cpal::default_host();
+    let default_name = host.default_output_device()
+        .and_then(|d| d.name().ok())
+        .unwrap_or_default();
+
+    let devices: Vec<AudioDeviceInfo> = host.output_devices()
+        .map_err(|e| format!("Failed to enumerate audio devices: {e}"))?
+        .filter_map(|d| {
+            let name = d.name().ok()?;
+            Some(AudioDeviceInfo {
+                is_default: name == default_name,
+                name,
+            })
+        })
+        .collect();
+
+    Ok(devices)
+}
+
 // ─── Event Payloads ────────────────────────────────────────────────────────────
 
 /// Payload for the `capture:audio-level` event.
@@ -57,6 +89,8 @@ pub struct AudioCapture {
     sample_rate: u32,
     /// How many milliseconds of audio per chunk. Default: 250.
     chunk_ms: u32,
+    /// Selected audio device name. `None` means use system default.
+    selected_device: std::sync::Mutex<Option<String>>,
 }
 
 impl AudioCapture {
@@ -69,6 +103,7 @@ impl AudioCapture {
             is_capturing: Arc::new(AtomicBool::new(false)),
             sample_rate,
             chunk_ms,
+            selected_device: std::sync::Mutex::new(None),
         }
     }
 
@@ -86,6 +121,17 @@ impl AudioCapture {
         self.is_capturing.load(Ordering::SeqCst)
     }
 
+    /// Select which audio device to use. Pass `None` for default.
+    pub fn set_device(&self, device_name: Option<String>) {
+        log::info!("Audio device selection changed to {:?}", device_name);
+        *self.selected_device.lock().unwrap() = device_name;
+    }
+
+    /// Get the currently selected device name.
+    pub fn selected_device_name(&self) -> Option<String> {
+        self.selected_device.lock().unwrap().clone()
+    }
+
     /// Start the audio capture loop on a **background thread**.
     ///
     /// This function spawns a `std::thread` (not a tokio task) because cpal
@@ -95,13 +141,15 @@ impl AudioCapture {
     /// Events emitted:
     /// - `capture:audio-level`  — every `chunk_ms` with the RMS level
     /// - `capture:audio-chunk`  — every `chunk_ms` with base64-encoded PCM data
-    pub fn start_loop(&self, app_handle: tauri::AppHandle) {
+    pub fn start_loop(&self, app_handle: tauri::AppHandle, stream_manager: Option<Arc<crate::stream_manager::StreamManager>>) {
         let is_capturing = Arc::clone(&self.is_capturing);
         let sample_rate = self.sample_rate;
         let chunk_ms = self.chunk_ms;
+        let rt_handle = tokio::runtime::Handle::current();
+        let selected_device = self.selected_device_name();
 
         std::thread::spawn(move || {
-            if let Err(e) = run_capture_loop(is_capturing, app_handle, sample_rate, chunk_ms) {
+            if let Err(e) = run_capture_loop(is_capturing, app_handle, sample_rate, chunk_ms, stream_manager, rt_handle, selected_device) {
                 log::error!("Audio capture loop failed: {e}");
             }
         });
@@ -116,14 +164,22 @@ fn run_capture_loop(
     app_handle: tauri::AppHandle,
     target_rate: u32,
     chunk_ms: u32,
+    stream_manager: Option<Arc<crate::stream_manager::StreamManager>>,
+    rt_handle: tokio::runtime::Handle,
+    selected_device: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Pick the default WASAPI host & output device.
+    // 1. Pick the WASAPI host & output device.
     //    On Windows, building an *input* stream on an *output* device gives us
     //    loopback capture (i.e. we hear what the speakers play).
     let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .ok_or("No default output device found")?;
+    let device = if let Some(ref name) = selected_device {
+        host.output_devices()?
+            .find(|d| d.name().map(|n| n == *name).unwrap_or(false))
+            .ok_or_else(|| format!("Audio device '{}' not found", name))?
+    } else {
+        host.default_output_device()
+            .ok_or("No default output device found")?
+    };
 
     log::info!("Audio capture device: {:?}", device.name()?);
 
@@ -215,6 +271,7 @@ fn run_capture_loop(
     //    compute RMS, and emit Tauri events.
     let chunk_duration = std::time::Duration::from_millis(chunk_ms as u64);
 
+    let mut first_chunk_logged = false;
     while is_capturing.load(Ordering::SeqCst) {
         std::thread::sleep(chunk_duration);
 
@@ -267,6 +324,21 @@ fn run_capture_loop(
         };
         if let Err(e) = app_handle.emit("capture:audio-chunk", &chunk_payload) {
             log::debug!("Failed to emit audio-chunk: {e}");
+        }
+
+        // Forward raw PCM to AI pipeline if a session is active
+        if let Some(ref sm) = stream_manager {
+            if !first_chunk_logged {
+                log::info!("Audio: first PCM chunk forwarded to AI session");
+                first_chunk_logged = true;
+            }
+            let pcm_bytes_for_ai = pcm_bytes.clone();
+            let sm_clone = Arc::clone(sm);
+            rt_handle.spawn(async move {
+                if let Err(e) = sm_clone.process_audio_chunk(&pcm_bytes_for_ai).await {
+                    log::warn!("Audio chunk send error (no active session?): {}", e);
+                }
+            });
         }
 
         log::debug!("Emitted audio chunk: {} samples, RMS={:.4}", pcm_i16.len(), rms);

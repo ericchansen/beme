@@ -2,33 +2,36 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::{json, Value};
+use std::sync::{Arc, Mutex};
 
-use super::{AiError, AiProvider, AudioSession, ConversationEntry, Role, TextStream};
+use super::{AiError, AiProvider, AudioResponseRx, AudioSession, TextStream};
 
 pub struct AzureVisionClient {
     endpoint: String,
     api_key: String,
-    deployment: String,
+    model: String,
     system_prompt: String,
     client: Client,
     /// When true, use `Authorization: Bearer` instead of `api-key` header.
     use_bearer: bool,
+    previous_response_id: Arc<Mutex<Option<String>>>,
 }
 
 impl AzureVisionClient {
     pub fn new(
         endpoint: impl Into<String>,
         api_key: impl Into<String>,
-        deployment: impl Into<String>,
+        model: impl Into<String>,
         system_prompt: impl Into<String>,
     ) -> Self {
         Self {
             endpoint: endpoint.into(),
             api_key: api_key.into(),
-            deployment: deployment.into(),
+            model: model.into(),
             system_prompt: system_prompt.into(),
             client: Client::new(),
             use_bearer: false,
+            previous_response_id: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -38,53 +41,34 @@ impl AzureVisionClient {
         self
     }
 
-    fn build_request_body(
-        &self,
-        frame_data: &str,
-        system_prompt: &str,
-        context: &[ConversationEntry],
-    ) -> Value {
-        let mut messages = Vec::new();
+    fn build_request_body(&self, frame_data: &str, system_prompt: &str) -> Value {
+        let previous_id = self.previous_response_id.lock().unwrap().clone();
 
-        // System message
-        messages.push(json!({
-            "role": "system",
-            "content": system_prompt
-        }));
+        let mut body = json!({
+            "model": self.model,
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        { "type": "input_text", "text": "What do you see?" },
+                        { "type": "input_image", "image_url": format!("data:image/jpeg;base64,{}", frame_data) }
+                    ]
+                }
+            ],
+            "instructions": system_prompt,
+            "stream": true,
+            "max_output_tokens": 300,
+            "truncation": "auto"
+        });
 
-        // Context messages from conversation history
-        for entry in context {
-            let role = match entry.role {
-                Role::User => "user",
-                Role::Assistant => "assistant",
-                Role::System => "system",
-            };
-            messages.push(json!({
-                "role": role,
-                "content": entry.content
-            }));
+        if let Some(prev_id) = previous_id {
+            body.as_object_mut()
+                .unwrap()
+                .insert("previous_response_id".into(), json!(prev_id));
         }
 
-        // User message with base64 image
-        messages.push(json!({
-            "role": "user",
-            "content": [
-                { "type": "text", "text": "What do you see?" },
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": format!("data:image/jpeg;base64,{}", frame_data),
-                        "detail": "low"
-                    }
-                }
-            ]
-        }));
-
-        json!({
-            "messages": messages,
-            "stream": true,
-            "max_tokens": 300
-        })
+        body
     }
 }
 
@@ -94,15 +78,13 @@ impl AiProvider for AzureVisionClient {
         &self,
         frame_data: &str,
         system_prompt: &str,
-        context: &[ConversationEntry],
     ) -> Result<Box<dyn TextStream>, AiError> {
         let url = format!(
-            "{}/openai/deployments/{}/chat/completions?api-version=2024-10-21",
+            "{}/openai/v1/responses?api-version=preview",
             self.endpoint.trim_end_matches('/'),
-            self.deployment
         );
 
-        let body = self.build_request_body(frame_data, system_prompt, context);
+        let body = self.build_request_body(frame_data, system_prompt);
 
         let mut req = self
             .client
@@ -128,6 +110,38 @@ impl AiProvider for AzureVisionClient {
                 .await
                 .unwrap_or_else(|_| "failed to read error body".into());
 
+            // If the previous_response_id is stale/expired, clear it and retry once
+            if status.as_u16() == 400 && error_body.contains("previous_response_not_found") {
+                log::warn!("Stale previous_response_id detected, clearing and retrying");
+                *self.previous_response_id.lock().unwrap() = None;
+                let retry_body = self.build_request_body(frame_data, system_prompt);
+                let mut retry_req = self
+                    .client
+                    .post(&url)
+                    .header("Content-Type", "application/json");
+                retry_req = if self.use_bearer {
+                    retry_req.header("Authorization", format!("Bearer {}", self.api_key))
+                } else {
+                    retry_req.header("api-key", &self.api_key)
+                };
+                let retry_response = retry_req
+                    .json(&retry_body)
+                    .send()
+                    .await
+                    .map_err(|e| AiError::ConnectionError(e.to_string()))?;
+                let retry_status = retry_response.status();
+                if !retry_status.is_success() {
+                    let retry_error = retry_response.text().await.unwrap_or_default();
+                    return Err(AiError::ConnectionError(format!(
+                        "HTTP {}: {}", retry_status, retry_error
+                    )));
+                }
+                return Ok(Box::new(ResponsesTextStream::new(
+                    retry_response,
+                    Arc::clone(&self.previous_response_id),
+                )));
+            }
+
             if status.as_u16() == 401 || status.as_u16() == 403 {
                 return Err(AiError::AuthError(error_body));
             }
@@ -142,13 +156,16 @@ impl AiProvider for AzureVisionClient {
             )));
         }
 
-        Ok(Box::new(SseTextStream::new(response)))
+        Ok(Box::new(ResponsesTextStream::new(
+            response,
+            Arc::clone(&self.previous_response_id),
+        )))
     }
 
     async fn start_audio_stream(
         &self,
         _system_prompt: &str,
-    ) -> Result<Box<dyn AudioSession>, AiError> {
+    ) -> Result<(Box<dyn AudioSession>, AudioResponseRx), AiError> {
         Err(AiError::ModelError(
             "Audio streaming not supported by AzureVisionClient".into(),
         ))
@@ -159,60 +176,87 @@ impl AiProvider for AzureVisionClient {
     }
 }
 
-/// Streaming SSE reader for Azure OpenAI Chat Completions
-pub struct SseTextStream {
+/// Streaming SSE reader for Azure OpenAI Responses API
+pub struct ResponsesTextStream {
     buffer: String,
     done: bool,
     response: Option<reqwest::Response>,
+    previous_response_id: Arc<Mutex<Option<String>>>,
 }
 
-impl SseTextStream {
-    fn new(response: reqwest::Response) -> Self {
+impl ResponsesTextStream {
+    fn new(response: reqwest::Response, previous_response_id: Arc<Mutex<Option<String>>>) -> Self {
         Self {
             buffer: String::new(),
             done: false,
             response: Some(response),
+            previous_response_id,
         }
     }
 }
 
-/// Parse a single SSE `data:` payload and extract delta content.
-fn parse_sse_data(data: &str) -> Option<Result<String, AiError>> {
+/// Parse a single SSE `data:` payload from the Responses API.
+/// Returns:
+///   `ParseResult::Delta(text)` — a text chunk to emit
+///   `ParseResult::ResponseId(id)` — capture the response ID
+///   `ParseResult::Done` — stream finished
+///   `ParseResult::Skip` — skip this event
+///   `ParseResult::Error(e)` — parse error
+enum ParseResult {
+    Delta(String),
+    ResponseId(String),
+    Done,
+    Skip,
+    Error(AiError),
+}
+
+fn parse_sse_data(data: &str) -> ParseResult {
     let trimmed = data.trim();
     if trimmed == "[DONE]" {
-        return None;
+        return ParseResult::Done;
     }
 
     let parsed: Value = match serde_json::from_str(trimmed) {
         Ok(v) => v,
         Err(e) => {
-            return Some(Err(AiError::InvalidResponse(format!(
+            return ParseResult::Error(AiError::InvalidResponse(format!(
                 "Invalid JSON in SSE: {}",
                 e
-            ))));
+            )));
         }
     };
 
-    if let Some(content) = parsed
-        .get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("delta"))
-        .and_then(|d| d.get("content"))
-        .and_then(|c| c.as_str())
-    {
-        if content.is_empty() {
-            // Empty content delta — skip
-            return Some(Ok(String::new()));
+    let event_type = parsed.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+    match event_type {
+        "response.output_text.delta" => {
+            let delta = parsed
+                .get("delta")
+                .and_then(|d| d.as_str())
+                .unwrap_or("");
+            if delta.is_empty() {
+                ParseResult::Skip
+            } else {
+                ParseResult::Delta(delta.to_string())
+            }
         }
-        Some(Ok(content.to_string()))
-    } else {
-        // Delta without content (e.g. role-only delta) — skip
-        Some(Ok(String::new()))
+        "response.created" => {
+            if let Some(id) = parsed
+                .pointer("/response/id")
+                .and_then(|v| v.as_str())
+            {
+                ParseResult::ResponseId(id.to_string())
+            } else {
+                ParseResult::Skip
+            }
+        }
+        "response.output_text.done" | "response.completed" => ParseResult::Done,
+        _ => ParseResult::Skip,
     }
 }
 
 #[async_trait]
-impl TextStream for SseTextStream {
+impl TextStream for ResponsesTextStream {
     async fn next_chunk(&mut self) -> Option<Result<String, AiError>> {
         if self.done {
             return None;
@@ -230,13 +274,17 @@ impl TextStream for SseTextStream {
 
                 if let Some(data) = line.strip_prefix("data: ") {
                     match parse_sse_data(data) {
-                        None => {
-                            // [DONE]
+                        ParseResult::Delta(text) => return Some(Ok(text)),
+                        ParseResult::ResponseId(id) => {
+                            *self.previous_response_id.lock().unwrap() = Some(id);
+                            continue;
+                        }
+                        ParseResult::Done => {
                             self.done = true;
                             return None;
                         }
-                        Some(Ok(text)) if text.is_empty() => continue,
-                        Some(result) => return Some(result),
+                        ParseResult::Skip => continue,
+                        ParseResult::Error(e) => return Some(Err(e)),
                     }
                 }
 
@@ -259,14 +307,20 @@ impl TextStream for SseTextStream {
                     self.buffer.push_str(&text);
                 }
                 Ok(None) => {
-                    // Stream ended without [DONE]
+                    // Stream ended
                     self.done = true;
-                    // Process any remaining buffer
                     if !self.buffer.trim().is_empty() {
                         let remaining = self.buffer.trim().to_string();
                         self.buffer.clear();
                         if let Some(data) = remaining.strip_prefix("data: ") {
-                            return parse_sse_data(data);
+                            match parse_sse_data(data) {
+                                ParseResult::Delta(text) => return Some(Ok(text)),
+                                ParseResult::ResponseId(id) => {
+                                    *self.previous_response_id.lock().unwrap() = Some(id);
+                                }
+                                ParseResult::Error(e) => return Some(Err(e)),
+                                _ => {}
+                            }
                         }
                     }
                     return None;
@@ -296,46 +350,37 @@ mod tests {
             "default prompt",
         );
 
-        let context = vec![ConversationEntry {
-            role: Role::User,
-            content: "previous question".into(),
-            timestamp: "2024-01-01T00:00:00Z".into(),
-            source: super::super::CaptureSource::Screen,
-        }];
-
-        let body = client.build_request_body("base64data", "You are helpful.", &context);
+        let body = client.build_request_body("base64data", "You are helpful.");
 
         // Verify top-level fields
         assert_eq!(body["stream"], json!(true));
-        assert_eq!(body["max_tokens"], json!(300));
+        assert_eq!(body["max_output_tokens"], json!(300));
+        assert_eq!(body["model"], "gpt-4o");
+        assert_eq!(body["instructions"], "You are helpful.");
+        assert_eq!(body["truncation"], "auto");
 
-        // Verify messages array
-        let messages = body["messages"].as_array().unwrap();
-        assert_eq!(messages.len(), 3); // system + 1 context + user with image
+        // previous_response_id should be absent when None
+        assert!(body.get("previous_response_id").is_none());
 
-        // System message
-        assert_eq!(messages[0]["role"], "system");
-        assert_eq!(messages[0]["content"], "You are helpful.");
+        // Verify input array
+        let input = body["input"].as_array().unwrap();
+        assert_eq!(input.len(), 1);
+        assert_eq!(input[0]["type"], "message");
+        assert_eq!(input[0]["role"], "user");
 
-        // Context message
-        assert_eq!(messages[1]["role"], "user");
-        assert_eq!(messages[1]["content"], "previous question");
-
-        // User message with image
-        assert_eq!(messages[2]["role"], "user");
-        let content = messages[2]["content"].as_array().unwrap();
+        let content = input[0]["content"].as_array().unwrap();
         assert_eq!(content.len(), 2);
-        assert_eq!(content[0]["type"], "text");
-        assert_eq!(content[1]["type"], "image_url");
+        assert_eq!(content[0]["type"], "input_text");
+        assert_eq!(content[0]["text"], "What do you see?");
+        assert_eq!(content[1]["type"], "input_image");
         assert_eq!(
-            content[1]["image_url"]["url"],
+            content[1]["image_url"],
             "data:image/jpeg;base64,base64data"
         );
-        assert_eq!(content[1]["image_url"]["detail"], "low");
     }
 
     #[test]
-    fn test_request_body_empty_context() {
+    fn test_request_body_with_previous_response_id() {
         let client = AzureVisionClient::new(
             "https://test.openai.azure.com",
             "test-key",
@@ -343,94 +388,71 @@ mod tests {
             "default prompt",
         );
 
-        let body = client.build_request_body("img", "prompt", &[]);
-        let messages = body["messages"].as_array().unwrap();
-        assert_eq!(messages.len(), 2); // system + user with image
+        *client.previous_response_id.lock().unwrap() = Some("resp_abc123".into());
+
+        let body = client.build_request_body("img", "prompt");
+        assert_eq!(body["previous_response_id"], "resp_abc123");
     }
 
     #[test]
-    fn test_request_body_assistant_context() {
-        let client = AzureVisionClient::new(
-            "https://test.openai.azure.com",
-            "test-key",
-            "gpt-4o",
-            "default prompt",
-        );
-
-        let context = vec![
-            ConversationEntry {
-                role: Role::User,
-                content: "What's on screen?".into(),
-                timestamp: "t1".into(),
-                source: super::super::CaptureSource::Screen,
-            },
-            ConversationEntry {
-                role: Role::Assistant,
-                content: "I see a code editor.".into(),
-                timestamp: "t2".into(),
-                source: super::super::CaptureSource::Screen,
-            },
-        ];
-
-        let body = client.build_request_body("img", "prompt", &context);
-        let messages = body["messages"].as_array().unwrap();
-        assert_eq!(messages[1]["role"], "user");
-        assert_eq!(messages[2]["role"], "assistant");
-        assert_eq!(messages[2]["content"], "I see a code editor.");
-    }
-
-    #[test]
-    fn test_parse_sse_data_content() {
-        let data = r#"{"id":"123","choices":[{"delta":{"content":"Hello"},"index":0}]}"#;
-        let result = parse_sse_data(data);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().unwrap(), "Hello");
+    fn test_parse_sse_data_delta() {
+        let data =
+            r#"{"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"Hello"}"#;
+        match parse_sse_data(data) {
+            ParseResult::Delta(text) => assert_eq!(text, "Hello"),
+            other => panic!("expected Delta, got {:?}", std::mem::discriminant(&other)),
+        }
     }
 
     #[test]
     fn test_parse_sse_data_multi_word() {
-        let data = r#"{"id":"123","choices":[{"delta":{"content":" world"},"index":0}]}"#;
-        let result = parse_sse_data(data);
-        assert_eq!(result.unwrap().unwrap(), " world");
+        let data = r#"{"type":"response.output_text.delta","delta":" world"}"#;
+        match parse_sse_data(data) {
+            ParseResult::Delta(text) => assert_eq!(text, " world"),
+            other => panic!("expected Delta, got {:?}", std::mem::discriminant(&other)),
+        }
     }
 
     #[test]
     fn test_parse_sse_data_done() {
-        let result = parse_sse_data("[DONE]");
-        assert!(result.is_none());
+        let data = "[DONE]";
+        assert!(matches!(parse_sse_data(data), ParseResult::Done));
     }
 
     #[test]
-    fn test_parse_sse_data_role_only_delta() {
-        let data = r#"{"id":"123","choices":[{"delta":{"role":"assistant"},"index":0}]}"#;
-        let result = parse_sse_data(data);
-        // Role-only delta returns empty string
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().unwrap(), "");
+    fn test_parse_sse_data_response_created() {
+        let data = r#"{"type":"response.created","response":{"id":"resp_xyz"}}"#;
+        match parse_sse_data(data) {
+            ParseResult::ResponseId(id) => assert_eq!(id, "resp_xyz"),
+            other => panic!(
+                "expected ResponseId, got {:?}",
+                std::mem::discriminant(&other)
+            ),
+        }
     }
 
     #[test]
-    fn test_parse_sse_data_empty_content() {
-        let data = r#"{"id":"123","choices":[{"delta":{"content":""},"index":0}]}"#;
-        let result = parse_sse_data(data);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().unwrap(), "");
+    fn test_parse_sse_data_output_text_done() {
+        let data = r#"{"type":"response.output_text.done","text":"Hello world"}"#;
+        assert!(matches!(parse_sse_data(data), ParseResult::Done));
+    }
+
+    #[test]
+    fn test_parse_sse_data_completed() {
+        let data = r#"{"type":"response.completed","response":{"id":"resp_abc123"}}"#;
+        assert!(matches!(parse_sse_data(data), ParseResult::Done));
+    }
+
+    #[test]
+    fn test_parse_sse_data_unknown_event_skipped() {
+        let data = r#"{"type":"response.output_item.added","item":{}}"#;
+        assert!(matches!(parse_sse_data(data), ParseResult::Skip));
     }
 
     #[test]
     fn test_parse_sse_data_invalid_json() {
         let data = "not valid json{{{";
-        let result = parse_sse_data(data);
-        assert!(result.is_some());
-        assert!(result.unwrap().is_err());
-    }
-
-    #[test]
-    fn test_parse_sse_data_missing_choices() {
-        let data = r#"{"id":"123"}"#;
-        let result = parse_sse_data(data);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().unwrap(), "");
+        assert!(matches!(parse_sse_data(data), ParseResult::Error(_)));
     }
 
     #[test]
@@ -441,16 +463,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_sse_stream_parsing() {
-        // Simulate SSE data in a buffer
-        let sse_data = "data: {\"id\":\"1\",\"choices\":[{\"delta\":{\"content\":\"Hi\"},\"index\":0}]}\n\ndata: {\"id\":\"2\",\"choices\":[{\"delta\":{\"content\":\" there\"},\"index\":0}]}\n\ndata: [DONE]\n\n";
+        let sse_data = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hi\"}\n\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\" there\"}\n\ndata: {\"type\":\"response.output_text.done\",\"text\":\"Hi there\"}\n\n";
 
-        // We can't easily mock reqwest::Response, so test parse_sse_data on each line
         let mut results = Vec::new();
         for line in sse_data.lines() {
             if let Some(data) = line.strip_prefix("data: ") {
                 match parse_sse_data(data) {
-                    None => break,
-                    Some(Ok(text)) if !text.is_empty() => results.push(text),
+                    ParseResult::Delta(text) => results.push(text),
+                    ParseResult::Done => break,
                     _ => {}
                 }
             }
@@ -467,13 +487,12 @@ mod tests {
             "prompt",
         );
         let url = format!(
-            "{}/openai/deployments/{}/chat/completions?api-version=2024-10-21",
+            "{}/openai/v1/responses?api-version=preview",
             client.endpoint.trim_end_matches('/'),
-            client.deployment
         );
         assert_eq!(
             url,
-            "https://beme-foundry.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21"
+            "https://beme-foundry.openai.azure.com/openai/v1/responses?api-version=preview"
         );
     }
 }

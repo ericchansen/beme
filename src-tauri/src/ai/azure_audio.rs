@@ -11,7 +11,7 @@ use tokio_tungstenite::tungstenite::{
 };
 use url::Url;
 
-use super::{AiError, AiProvider, AudioSession, ConversationEntry, TextStream};
+use super::{AiError, AiProvider, AudioResponseRx, AudioSession, TextStream};
 
 /// Azure OpenAI Realtime API audio client (WebSocket).
 pub struct AzureAudioClient {
@@ -24,8 +24,11 @@ pub struct AzureAudioClient {
 /// Live WebSocket session for bidirectional audio.
 pub struct RealtimeAudioSession {
     sender: mpsc::Sender<Message>,
-    receiver: mpsc::Receiver<Result<String, AiError>>,
     close_sender: Option<mpsc::Sender<()>>,
+    /// Number of audio chunks sent since last commit.
+    chunks_since_commit: u32,
+    /// Commit every N chunks (~15s at 250ms chunks = 60 chunks).
+    commit_interval: u32,
 }
 
 // ── helpers (also used by tests) ────────────────────────────────────
@@ -39,7 +42,7 @@ fn build_session_config(system_prompt: &str) -> Value {
             "instructions": system_prompt,
             "input_audio_format": "pcm16",
             "input_audio_transcription": { "model": "whisper-1" },
-            "turn_detection": { "type": "server_vad" }
+            "turn_detection": null
         }
     })
 }
@@ -52,24 +55,43 @@ fn build_audio_append(pcm: &[u8]) -> Value {
     })
 }
 
-/// Parse a single server-sent event and return:
-///   Ok(Some(text))  – a text delta to forward
-///   Ok(None)        – event handled but nothing to emit (skip / done)
-///   Err(e)          – an error event
-fn parse_event(text: &str) -> Result<Option<String>, AiError> {
+/// Build an `input_audio_buffer.commit` message.
+fn build_audio_commit() -> Value {
+    json!({ "type": "input_audio_buffer.commit" })
+}
+
+/// Build a `response.create` message to trigger the model.
+fn build_response_create() -> Value {
+    json!({ "type": "response.create" })
+}
+
+/// Parsed event from the Realtime API.
+#[derive(Debug, Clone, PartialEq)]
+enum AudioEvent {
+    /// A text delta to forward.
+    Delta(String),
+    /// The response turn is complete.
+    Done,
+    /// Nothing actionable (skip).
+    Skip,
+}
+
+/// Parse a single server-sent event.
+fn parse_event(text: &str) -> Result<AudioEvent, AiError> {
     let v: Value = serde_json::from_str(text)
         .map_err(|e| AiError::InvalidResponse(format!("bad JSON: {e}")))?;
 
     match v.get("type").and_then(|t| t.as_str()) {
-        Some("response.text.delta") => {
+        Some("response.text.delta") | Some("response.audio_transcript.delta") => {
             let delta = v
                 .get("delta")
                 .and_then(|d| d.as_str())
                 .unwrap_or("")
                 .to_string();
-            Ok(Some(delta))
+            Ok(AudioEvent::Delta(delta))
         }
-        Some("response.text.done") | Some("response.done") => Ok(None),
+        Some("response.done") => Ok(AudioEvent::Done),
+        Some("response.text.done") | Some("response.audio_transcript.done") => Ok(AudioEvent::Skip),
         Some("error") => {
             let msg = v
                 .pointer("/error/message")
@@ -81,7 +103,11 @@ fn parse_event(text: &str) -> Result<Option<String>, AiError> {
                 .unwrap_or("");
             Err(AiError::ModelError(format!("[{code}] {msg}")))
         }
-        _ => Ok(None), // skip unknown events
+        _ => {
+            let event_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
+            log::debug!("Audio: skipping event type '{}'", event_type);
+            Ok(AudioEvent::Skip)
+        }
     }
 }
 
@@ -93,7 +119,6 @@ impl AiProvider for AzureAudioClient {
         &self,
         _frame_data: &str,
         _system_prompt: &str,
-        _context: &[ConversationEntry],
     ) -> Result<Box<dyn TextStream>, AiError> {
         Err(AiError::ModelError(
             "AzureAudioClient does not support vision analysis".into(),
@@ -103,19 +128,24 @@ impl AiProvider for AzureAudioClient {
     async fn start_audio_stream(
         &self,
         system_prompt: &str,
-    ) -> Result<Box<dyn AudioSession>, AiError> {
-        // Build wss URL
+    ) -> Result<(Box<dyn AudioSession>, AudioResponseRx), AiError> {
+        // Build wss URL — Realtime API requires openai.azure.com domain
         let host = Url::parse(&self.endpoint)
             .map_err(|e| AiError::ConnectionError(format!("bad endpoint URL: {e}")))?
             .host_str()
             .ok_or_else(|| AiError::ConnectionError("no host in endpoint URL".into()))?
             .to_string();
 
+        // Convert cognitiveservices.azure.com → openai.azure.com
+        let ws_host = host.replace(".cognitiveservices.azure.com", ".openai.azure.com");
+
         let ws_url = format!(
-            "wss://{host}/openai/realtime?api-version=2025-04-01-preview&deployment={deployment}",
+            "wss://{ws_host}/openai/realtime?api-version=2025-04-01-preview&deployment={deployment}",
             deployment = self.deployment,
         );
+        log::info!("Audio WebSocket URL: {}", ws_url);
 
+        let ws_url_display = ws_url.clone();
         let mut request = ws_url
             .into_client_request()
             .map_err(|e| AiError::ConnectionError(format!("request build: {e}")))?;
@@ -129,6 +159,7 @@ impl AiProvider for AzureAudioClient {
             tokio_tungstenite::connect_async(request)
                 .await
                 .map_err(|e| AiError::ConnectionError(format!("WebSocket connect: {e}")))?;
+        log::info!("Audio WebSocket connected to {}", ws_url_display);
 
         let (mut ws_sink, mut ws_source) = ws_stream.split();
 
@@ -146,12 +177,16 @@ impl AiProvider for AzureAudioClient {
         // Channel: close signal
         let (close_tx, mut close_rx) = mpsc::channel::<()>(1);
 
+        let writer_resp_tx = resp_tx.clone();
+
         // Writer task
         tokio::spawn(async move {
             loop {
                 tokio::select! {
                     Some(msg) = send_rx.recv() => {
-                        if ws_sink.send(msg).await.is_err() {
+                        if let Err(e) = ws_sink.send(msg).await {
+                            log::error!("Audio WebSocket send error: {e}");
+                            let _ = writer_resp_tx.send(Err(AiError::ConnectionError(format!("WebSocket send: {e}")))).await;
                             break;
                         }
                     }
@@ -165,29 +200,46 @@ impl AiProvider for AzureAudioClient {
 
         // Reader task
         tokio::spawn(async move {
-            while let Some(Ok(msg)) = ws_source.next().await {
-                if let Message::Text(text) = msg {
-                    match parse_event(&text) {
-                        Ok(Some(delta)) => {
-                            if resp_tx.send(Ok(delta)).await.is_err() {
+            while let Some(msg_result) = ws_source.next().await {
+                match msg_result {
+                    Ok(Message::Text(text)) => {
+                        match parse_event(&text) {
+                            Ok(AudioEvent::Delta(delta)) => {
+                                if resp_tx.send(Ok(delta)).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Ok(AudioEvent::Done) => {
+                                // Send empty string to signal turn completion
+                                let _ = resp_tx.send(Ok(String::new())).await;
+                            }
+                            Ok(AudioEvent::Skip) => { /* skip */ }
+                            Err(e) => {
+                                let _ = resp_tx.send(Err(e)).await;
                                 break;
                             }
                         }
-                        Ok(None) => { /* skip */ }
-                        Err(e) => {
-                            let _ = resp_tx.send(Err(e)).await;
-                            break;
-                        }
+                    }
+                    Ok(_) => { /* skip non-text messages */ }
+                    Err(e) => {
+                        log::error!("Audio WebSocket read error: {e}");
+                        let _ = resp_tx.send(Err(AiError::ConnectionError(format!("WebSocket read: {e}")))).await;
+                        break;
                     }
                 }
             }
+            log::info!("Audio WebSocket reader task ended");
         });
 
-        Ok(Box::new(RealtimeAudioSession {
-            sender: send_tx,
-            receiver: resp_rx,
-            close_sender: Some(close_tx),
-        }))
+        Ok((
+            Box::new(RealtimeAudioSession {
+                sender: send_tx,
+                close_sender: Some(close_tx),
+                chunks_since_commit: 0,
+                commit_interval: 60, // ~15s at 250ms chunk rate
+            }),
+            resp_rx,
+        ))
     }
 
     fn name(&self) -> &str {
@@ -204,11 +256,24 @@ impl AudioSession for RealtimeAudioSession {
         self.sender
             .send(Message::Text(payload.to_string().into()))
             .await
-            .map_err(|e| AiError::ConnectionError(format!("send audio: {e}")))
-    }
+            .map_err(|e| AiError::ConnectionError(format!("send audio: {e}")))?;
 
-    async fn next_response(&mut self) -> Option<Result<String, AiError>> {
-        self.receiver.recv().await
+        self.chunks_since_commit += 1;
+        if self.chunks_since_commit >= self.commit_interval {
+            self.chunks_since_commit = 0;
+            log::info!("Audio: auto-commit after {} chunks, requesting response", self.commit_interval);
+            let commit = build_audio_commit();
+            self.sender
+                .send(Message::Text(commit.to_string().into()))
+                .await
+                .map_err(|e| AiError::ConnectionError(format!("send commit: {e}")))?;
+            let create = build_response_create();
+            self.sender
+                .send(Message::Text(create.to_string().into()))
+                .await
+                .map_err(|e| AiError::ConnectionError(format!("send response.create: {e}")))?;
+        }
+        Ok(())
     }
 
     async fn close(&mut self) -> Result<(), AiError> {
@@ -237,7 +302,7 @@ mod tests {
             session["input_audio_transcription"]["model"],
             "whisper-1"
         );
-        assert_eq!(session["turn_detection"]["type"], "server_vad");
+        assert!(session["turn_detection"].is_null());
     }
 
     #[test]
@@ -254,21 +319,21 @@ mod tests {
     fn parse_text_delta_event() {
         let event = r#"{"type":"response.text.delta","delta":"Hello"}"#;
         let result = parse_event(event).unwrap();
-        assert_eq!(result, Some("Hello".to_string()));
+        assert_eq!(result, AudioEvent::Delta("Hello".to_string()));
     }
 
     #[test]
     fn parse_text_done_event() {
         let event = r#"{"type":"response.text.done","text":"Hello world"}"#;
         let result = parse_event(event).unwrap();
-        assert_eq!(result, None);
+        assert_eq!(result, AudioEvent::Skip);
     }
 
     #[test]
     fn parse_response_done_event() {
         let event = r#"{"type":"response.done","response":{}}"#;
         let result = parse_event(event).unwrap();
-        assert_eq!(result, None);
+        assert_eq!(result, AudioEvent::Done);
     }
 
     #[test]
@@ -291,7 +356,7 @@ mod tests {
     fn parse_unknown_event_is_skipped() {
         let event = r#"{"type":"session.created","session":{"id":"abc"}}"#;
         let result = parse_event(event).unwrap();
-        assert_eq!(result, None);
+        assert_eq!(result, AudioEvent::Skip);
     }
 
     #[test]
