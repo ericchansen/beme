@@ -18,15 +18,14 @@ pub trait AiProvider: Send + Sync {
         &self,
         frame_data: &str,
         system_prompt: &str,
-        context: &[ConversationEntry],
     ) -> Result<Box<dyn TextStream>, AiError>;
 
     /// Start an audio streaming session.
-    /// Returns a handle that can receive audio chunks and emit text responses.
+    /// Returns a session handle for sending audio, plus a receiver for text responses.
     async fn start_audio_stream(
         &self,
         system_prompt: &str,
-    ) -> Result<Box<dyn AudioSession>, AiError>;
+    ) -> Result<(Box<dyn AudioSession>, AudioResponseRx), AiError>;
 
     /// Provider name for logging/display
     fn name(&self) -> &str;

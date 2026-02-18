@@ -10,6 +10,37 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
+// ── Monitor info ────────────────────────────────────────────────────────
+/// Describes a connected display, returned by the `list_monitors` command.
+#[derive(Clone, Serialize)]
+pub struct MonitorInfo {
+    /// Unique identifier (xcap id)
+    pub id: u32,
+    /// Human-readable name
+    pub name: String,
+    /// Whether this is the primary display
+    pub is_primary: bool,
+    /// Pixel width
+    pub width: u32,
+    /// Pixel height
+    pub height: u32,
+}
+
+/// Enumerate all connected monitors.
+pub fn list_monitors() -> Result<Vec<MonitorInfo>, String> {
+    let monitors = xcap::Monitor::all().map_err(|e| format!("enumerate monitors: {e}"))?;
+    Ok(monitors
+        .iter()
+        .map(|m| MonitorInfo {
+            id: m.id(),
+            name: m.name().to_string(),
+            width: m.width(),
+            height: m.height(),
+            is_primary: m.is_primary(),
+        })
+        .collect())
+}
+
 // ── Event payload ───────────────────────────────────────────────────────
 /// The JSON payload emitted on every new frame via the `capture:frame` event.
 #[derive(Clone, Serialize)]
@@ -48,6 +79,8 @@ pub struct ScreenCapture {
     jpeg_quality: u8,
     /// Perceptual hash of the most recently emitted frame, used for diffing.
     last_hash: Mutex<u64>,
+    /// xcap monitor ID to capture. `None` means primary (or first available).
+    selected_monitor_id: Mutex<Option<u32>>,
 }
 
 impl ScreenCapture {
@@ -61,7 +94,18 @@ impl ScreenCapture {
             max_width,
             jpeg_quality,
             last_hash: Mutex::new(0),
+            selected_monitor_id: Mutex::new(None),
         }
+    }
+
+    /// Set which monitor to capture by xcap ID. `None` = primary.
+    pub fn set_monitor(&self, id: Option<u32>) {
+        *self.selected_monitor_id.lock().unwrap() = id;
+    }
+
+    /// Get the currently selected monitor ID.
+    pub fn selected_monitor_id(&self) -> Option<u32> {
+        *self.selected_monitor_id.lock().unwrap()
     }
 
     /// Flip the capturing flag on/off. Returns the **new** state.
@@ -103,6 +147,7 @@ impl ScreenCapture {
         let interval = self.interval_ms;
         let max_w = self.max_width;
         let quality = self.jpeg_quality;
+        let monitor_id = self.selected_monitor_id();
 
         // We need the Mutex to travel into the spawned task. Because
         // `Mutex<u64>` isn't Clone, we wrap access through a shared Arc.
@@ -120,7 +165,7 @@ impl ScreenCapture {
             log::info!("Screen capture loop started (interval={}ms)", interval);
 
             while flag.load(Ordering::SeqCst) {
-                match capture_frame(max_w, quality, &last_hash) {
+                match capture_frame(max_w, quality, &last_hash, monitor_id) {
                     Ok(Some(payload)) => {
                         log::debug!(
                             "Emitting capture:frame ({}x{}, diff={:.1}%)",
@@ -171,14 +216,19 @@ fn capture_frame(
     max_width: u32,
     jpeg_quality: u8,
     last_hash: &Arc<Mutex<u64>>,
+    monitor_id: Option<u32>,
 ) -> Result<Option<FramePayload>, String> {
-    // 1. Capture the primary monitor
+    // 1. Capture the selected monitor (or primary / first available)
     let monitors = xcap::Monitor::all().map_err(|e| format!("enumerate monitors: {e}"))?;
-    let monitor = monitors
-        .into_iter()
-        .find(|m| m.is_primary())
-        .or_else(|| xcap::Monitor::all().ok()?.into_iter().next())
-        .ok_or_else(|| "no monitors found".to_string())?;
+    let monitor = if let Some(id) = monitor_id {
+        monitors.into_iter().find(|m| m.id() == id)
+    } else {
+        monitors
+            .into_iter()
+            .find(|m| m.is_primary())
+            .or_else(|| xcap::Monitor::all().ok()?.into_iter().next())
+    }
+    .ok_or_else(|| "no monitors found".to_string())?;
 
     let raw = monitor
         .capture_image()
