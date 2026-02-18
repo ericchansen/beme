@@ -71,3 +71,14 @@ export function listenAiError(
 ): Promise<UnlistenFn> {
   return listen<AiErrorPayload>("ai:error", (e) => cb(e.payload));
 }
+
+export interface AudioStatusPayload {
+  status: "connecting" | "connected" | "disconnected" | "error";
+  message: string | null;
+}
+
+export function listenAudioStatus(
+  cb: (payload: AudioStatusPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<AudioStatusPayload>("ai:audio-status", (e) => cb(e.payload));
+}
