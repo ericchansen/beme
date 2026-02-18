@@ -7,12 +7,12 @@
 //!
 //! Run: cargo test --test audio_e2e -- --ignored
 
-use std::time::Duration;
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use futures_util::{SinkExt, StreamExt};
-use serde_json::{Value, json};
-use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
+use serde_json::{json, Value};
+use std::time::Duration;
+use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 
 fn get_env(key: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| panic!("Set {} env var to run this test", key))
@@ -37,7 +37,9 @@ async fn realtime_api_responds_to_audio() {
 
     // 3. Connect
     let mut request = ws_url.into_client_request().expect("request build failed");
-    request.headers_mut().insert("api-key", api_key.parse().unwrap());
+    request
+        .headers_mut()
+        .insert("api-key", api_key.parse().unwrap());
 
     let (ws_stream, response) = tokio_tungstenite::connect_async(request)
         .await
@@ -68,7 +70,7 @@ async fn realtime_api_responds_to_audio() {
     println!("Loaded {} bytes of test audio", pcm_data.len());
 
     let samples_per_chunk = 24000 * 250 / 1000; // 6000 samples per 250ms
-    let bytes_per_chunk = samples_per_chunk * 2;  // 16-bit = 2 bytes per sample
+    let bytes_per_chunk = samples_per_chunk * 2; // 16-bit = 2 bytes per sample
 
     for chunk in pcm_data.chunks(bytes_per_chunk) {
         let b64 = BASE64.encode(chunk);
@@ -122,7 +124,10 @@ async fn realtime_api_responds_to_audio() {
                         break;
                     }
                     "error" => {
-                        let err_msg = v.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or("unknown");
+                        let err_msg = v
+                            .pointer("/error/message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("unknown");
                         panic!("API error: {err_msg}");
                     }
                     _ => {
@@ -148,8 +153,14 @@ async fn realtime_api_responds_to_audio() {
     let full_text: String = deltas.join("");
     println!("Full response: {full_text}");
 
-    assert!(got_response_done, "Expected response.done event but didn't receive one");
-    assert!(!deltas.is_empty(), "Expected at least one text delta but got none");
+    assert!(
+        got_response_done,
+        "Expected response.done event but didn't receive one"
+    );
+    assert!(
+        !deltas.is_empty(),
+        "Expected at least one text delta but got none"
+    );
     assert!(!full_text.is_empty(), "Expected non-empty response text");
 
     // Close gracefully

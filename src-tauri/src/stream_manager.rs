@@ -31,7 +31,7 @@ pub struct AiErrorPayload {
 /// Payload emitted on `ai:audio-status` events.
 #[derive(Clone, Serialize)]
 pub struct AudioStatusPayload {
-    pub status: String,  // "connecting", "connected", "disconnected", "error"
+    pub status: String, // "connecting", "connected", "disconnected", "error"
     pub message: Option<String>,
 }
 
@@ -79,7 +79,10 @@ impl StreamManager {
         }
         *self.provider.lock().unwrap() = Some(Arc::new(client));
         *self.system_prompt.lock().unwrap() = system_prompt.to_string();
-        log::info!("StreamManager: Azure vision provider configured (bearer={})", use_bearer);
+        log::info!(
+            "StreamManager: Azure vision provider configured (bearer={})",
+            use_bearer
+        );
     }
 
     /// Check if a provider is configured.
@@ -284,10 +287,7 @@ impl StreamManager {
         };
 
         tokio::spawn(async move {
-            match provider
-                .analyze_frame(&frame_data, &system_prompt)
-                .await
-            {
+            match provider.analyze_frame(&frame_data, &system_prompt).await {
                 Ok(mut stream) => {
                     while let Some(chunk_result) = stream.next_chunk().await {
                         match chunk_result {
@@ -356,19 +356,20 @@ fn log_event_for_testing(event_name: &str, payload: &SuggestionPayload) {
             let _ = writeln!(
                 file,
                 r#"{{"event":"{}","timestamp":"{}","payload":{}}}"#,
-                event_name,
-                payload.timestamp,
-                json
+                event_name, payload.timestamp, json
             );
         }
     }
 }
 
 fn emit_audio_status(app_handle: &AppHandle, status: &str, message: Option<String>) {
-    let _ = app_handle.emit("ai:audio-status", AudioStatusPayload {
-        status: status.to_string(),
-        message,
-    });
+    let _ = app_handle.emit(
+        "ai:audio-status",
+        AudioStatusPayload {
+            status: status.to_string(),
+            message,
+        },
+    );
 }
 
 fn now_iso() -> String {
@@ -441,5 +442,4 @@ mod tests {
         assert_eq!(&ts[7..8], "-");
         assert_eq!(&ts[10..11], "T");
     }
-
 }

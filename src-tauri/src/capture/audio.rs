@@ -27,11 +27,13 @@ pub struct AudioDeviceInfo {
 /// List all available audio output devices.
 pub fn list_audio_devices() -> Result<Vec<AudioDeviceInfo>, String> {
     let host = cpal::default_host();
-    let default_name = host.default_output_device()
+    let default_name = host
+        .default_output_device()
         .and_then(|d| d.name().ok())
         .unwrap_or_default();
 
-    let devices: Vec<AudioDeviceInfo> = host.output_devices()
+    let devices: Vec<AudioDeviceInfo> = host
+        .output_devices()
         .map_err(|e| format!("Failed to enumerate audio devices: {e}"))?
         .filter_map(|d| {
             let name = d.name().ok()?;
@@ -112,7 +114,10 @@ impl AudioCapture {
         // fetch_xor flips the bool and returns the *previous* value
         let was_capturing = self.is_capturing.fetch_xor(true, Ordering::SeqCst);
         let now_capturing = !was_capturing;
-        log::info!("Audio capture toggled → {}", if now_capturing { "ON" } else { "OFF" });
+        log::info!(
+            "Audio capture toggled → {}",
+            if now_capturing { "ON" } else { "OFF" }
+        );
         now_capturing
     }
 
@@ -141,7 +146,11 @@ impl AudioCapture {
     /// Events emitted:
     /// - `capture:audio-level`  — every `chunk_ms` with the RMS level
     /// - `capture:audio-chunk`  — every `chunk_ms` with base64-encoded PCM data
-    pub fn start_loop(&self, app_handle: tauri::AppHandle, stream_manager: Option<Arc<crate::stream_manager::StreamManager>>) {
+    pub fn start_loop(
+        &self,
+        app_handle: tauri::AppHandle,
+        stream_manager: Option<Arc<crate::stream_manager::StreamManager>>,
+    ) {
         let is_capturing = Arc::clone(&self.is_capturing);
         let sample_rate = self.sample_rate;
         let chunk_ms = self.chunk_ms;
@@ -149,7 +158,15 @@ impl AudioCapture {
         let selected_device = self.selected_device_name();
 
         std::thread::spawn(move || {
-            if let Err(e) = run_capture_loop(is_capturing, app_handle, sample_rate, chunk_ms, stream_manager, rt_handle, selected_device) {
+            if let Err(e) = run_capture_loop(
+                is_capturing,
+                app_handle,
+                sample_rate,
+                chunk_ms,
+                stream_manager,
+                rt_handle,
+                selected_device,
+            ) {
                 log::error!("Audio capture loop failed: {e}");
             }
         });
@@ -202,8 +219,9 @@ fn run_capture_loop(
         (device_sample_rate as usize * chunk_ms as usize) / 1000 * device_channels;
 
     // Shared buffer: the cpal callback pushes samples here, the drain loop reads them.
-    let buffer: Arc<std::sync::Mutex<Vec<f32>>> =
-        Arc::new(std::sync::Mutex::new(Vec::with_capacity(device_samples_per_chunk * 2)));
+    let buffer: Arc<std::sync::Mutex<Vec<f32>>> = Arc::new(std::sync::Mutex::new(
+        Vec::with_capacity(device_samples_per_chunk * 2),
+    ));
 
     let buffer_writer = Arc::clone(&buffer);
 
@@ -229,10 +247,8 @@ fn run_capture_loop(
                 &stream_config,
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
                     // Convert i16 → f32 (range -1.0..1.0)
-                    let floats: Vec<f32> = data
-                        .iter()
-                        .map(|&s| s as f32 / i16::MAX as f32)
-                        .collect();
+                    let floats: Vec<f32> =
+                        data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
                     if let Ok(mut buf) = buf_w.lock() {
                         buf.extend_from_slice(&floats);
                     }
@@ -341,7 +357,11 @@ fn run_capture_loop(
             });
         }
 
-        log::debug!("Emitted audio chunk: {} samples, RMS={:.4}", pcm_i16.len(), rms);
+        log::debug!(
+            "Emitted audio chunk: {} samples, RMS={:.4}",
+            pcm_i16.len(),
+            rms
+        );
     }
 
     // 8. Capture was toggled off — the stream is dropped here automatically.
@@ -403,10 +423,7 @@ pub fn compute_rms(samples: &[i16]) -> f32 {
 
 /// Convert a slice of i16 samples to raw little-endian bytes.
 fn pcm_i16_to_bytes(samples: &[i16]) -> Vec<u8> {
-    samples
-        .iter()
-        .flat_map(|s| s.to_le_bytes())
-        .collect()
+    samples.iter().flat_map(|s| s.to_le_bytes()).collect()
 }
 
 /// Returns the current time as an ISO-8601 string (UTC, millisecond precision).
@@ -430,9 +447,7 @@ fn now_iso8601() -> String {
     // Convert days since epoch to year-month-day (simplified Gregorian)
     let (year, month, day) = epoch_days_to_ymd(days);
 
-    format!(
-        "{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{millis:03}Z"
-    )
+    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{millis:03}Z")
 }
 
 /// Convert days since the UNIX epoch (1970-01-01) to (year, month, day).
@@ -468,10 +483,7 @@ mod tests {
         // A constant signal at i16::MAX should give RMS ≈ 1.0
         let loud = vec![i16::MAX; 1000];
         let rms = compute_rms(&loud);
-        assert!(
-            (rms - 1.0).abs() < 0.001,
-            "Expected RMS ≈ 1.0, got {rms}"
-        );
+        assert!((rms - 1.0).abs() < 0.001, "Expected RMS ≈ 1.0, got {rms}");
     }
 
     #[test]

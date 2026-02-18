@@ -1,14 +1,11 @@
 #![allow(dead_code)]
 use async_trait::async_trait;
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use futures_util::{SinkExt, StreamExt};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite::{
-    Message,
-    client::IntoClientRequest,
-};
+use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 use url::Url;
 
 use super::{AiError, AiProvider, AudioResponseRx, AudioSession, TextStream};
@@ -149,16 +146,16 @@ impl AiProvider for AzureAudioClient {
         let mut request = ws_url
             .into_client_request()
             .map_err(|e| AiError::ConnectionError(format!("request build: {e}")))?;
-        request
-            .headers_mut()
-            .insert("api-key", self.api_key.parse().map_err(|e| {
-                AiError::AuthError(format!("invalid api-key header value: {e}"))
-            })?);
+        request.headers_mut().insert(
+            "api-key",
+            self.api_key
+                .parse()
+                .map_err(|e| AiError::AuthError(format!("invalid api-key header value: {e}")))?,
+        );
 
-        let (ws_stream, _response) =
-            tokio_tungstenite::connect_async(request)
-                .await
-                .map_err(|e| AiError::ConnectionError(format!("WebSocket connect: {e}")))?;
+        let (ws_stream, _response) = tokio_tungstenite::connect_async(request)
+            .await
+            .map_err(|e| AiError::ConnectionError(format!("WebSocket connect: {e}")))?;
         log::info!("Audio WebSocket connected to {}", ws_url_display);
 
         let (mut ws_sink, mut ws_source) = ws_stream.split();
@@ -223,7 +220,11 @@ impl AiProvider for AzureAudioClient {
                     Ok(_) => { /* skip non-text messages */ }
                     Err(e) => {
                         log::error!("Audio WebSocket read error: {e}");
-                        let _ = resp_tx.send(Err(AiError::ConnectionError(format!("WebSocket read: {e}")))).await;
+                        let _ = resp_tx
+                            .send(Err(AiError::ConnectionError(format!(
+                                "WebSocket read: {e}"
+                            ))))
+                            .await;
                         break;
                     }
                 }
@@ -261,7 +262,10 @@ impl AudioSession for RealtimeAudioSession {
         self.chunks_since_commit += 1;
         if self.chunks_since_commit >= self.commit_interval {
             self.chunks_since_commit = 0;
-            log::info!("Audio: auto-commit after {} chunks, requesting response", self.commit_interval);
+            log::info!(
+                "Audio: auto-commit after {} chunks, requesting response",
+                self.commit_interval
+            );
             let commit = build_audio_commit();
             self.sender
                 .send(Message::Text(commit.to_string().into()))
@@ -298,10 +302,7 @@ mod tests {
         assert_eq!(session["modalities"][0], "text");
         assert_eq!(session["instructions"], "You are a helpful assistant.");
         assert_eq!(session["input_audio_format"], "pcm16");
-        assert_eq!(
-            session["input_audio_transcription"]["model"],
-            "whisper-1"
-        );
+        assert_eq!(session["input_audio_transcription"]["model"], "whisper-1");
         assert!(session["turn_detection"].is_null());
     }
 
