@@ -30,12 +30,27 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle();
 
     // Build the right-click menu items.
-    let toggle_item = MenuItem::with_id(handle, "toggle_capture", "Start Capture", true, None::<&str>)?;
+    let toggle_item = MenuItem::with_id(
+        handle,
+        "toggle_capture",
+        "Start Capture",
+        true,
+        None::<&str>,
+    )?;
     let separator = PredefinedMenuItem::separator(handle)?;
-    let dashboard_item = MenuItem::with_id(handle, "open_dashboard", "Open Dashboard", true, None::<&str>)?;
+    let dashboard_item = MenuItem::with_id(
+        handle,
+        "open_dashboard",
+        "Open Dashboard",
+        true,
+        None::<&str>,
+    )?;
     let quit_item = MenuItem::with_id(handle, "quit", "Quit", true, None::<&str>)?;
 
-    let menu = Menu::with_items(handle, &[&toggle_item, &separator, &dashboard_item, &quit_item])?;
+    let menu = Menu::with_items(
+        handle,
+        &[&toggle_item, &separator, &dashboard_item, &quit_item],
+    )?;
 
     // Build the tray icon (uses the default app icon).
     TrayIconBuilder::new()
@@ -45,18 +60,26 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             match event.id().as_ref() {
                 "toggle_capture" => {
                     let now_capturing = toggle_capture();
-                    log::info!("Tray: capture toggled → {}", if now_capturing { "ON" } else { "OFF" });
+                    log::info!(
+                        "Tray: capture toggled → {}",
+                        if now_capturing { "ON" } else { "OFF" }
+                    );
 
                     // Update the menu item label to reflect new state.
                     if let Some(item) = menu.get("toggle_capture") {
                         if let Some(mi) = item.as_menuitem() {
-                            let label = if now_capturing { "Stop Capture" } else { "Start Capture" };
+                            let label = if now_capturing {
+                                "Stop Capture"
+                            } else {
+                                "Start Capture"
+                            };
                             let _ = mi.set_text(label);
                         }
                     }
 
                     // Emit toggle event so frontend & capture modules can react.
-                    let _ = app_handle.emit("toggle:capture", serde_json::json!({ "source": "tray" }));
+                    let _ =
+                        app_handle.emit("toggle:capture", serde_json::json!({ "source": "tray" }));
                 }
                 "open_dashboard" => {
                     log::info!("Tray: opening dashboard window");
@@ -99,5 +122,8 @@ pub fn on_shortcut_event(
         if now_capturing { "ON" } else { "OFF" }
     );
 
-    let _ = app.emit("toggle:capture", serde_json::json!({ "source": "shortcut" }));
+    let _ = app.emit(
+        "toggle:capture",
+        serde_json::json!({ "source": "shortcut" }),
+    );
 }

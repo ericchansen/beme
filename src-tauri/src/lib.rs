@@ -60,7 +60,13 @@ async fn configure_ai(
     system_prompt: String,
     use_bearer: Option<bool>,
 ) -> Result<(), String> {
-    state.configure_azure(&endpoint, &api_key, &deployment, &system_prompt, use_bearer.unwrap_or(false));
+    state.configure_azure(
+        &endpoint,
+        &api_key,
+        &deployment,
+        &system_prompt,
+        use_bearer.unwrap_or(false),
+    );
     Ok(())
 }
 
@@ -165,7 +171,10 @@ async fn update_prompt(
             "audio" => s.audio_prompt = text,
             _ => {}
         }
-        let dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+        let dir = app_handle
+            .path()
+            .app_config_dir()
+            .map_err(|e| e.to_string())?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let path = dir.join("settings.toml");
         let content = toml::to_string_pretty(&s).map_err(|e| e.to_string())?;
@@ -223,9 +232,20 @@ pub fn run() {
             let sm = app.state::<Arc<stream_manager::StreamManager>>();
             if let Ok(s) = settings::Settings::load_from_app(app.handle()) {
                 if !s.endpoint.is_empty() && !s.api_key.is_empty() {
-                    sm.configure_azure(&s.endpoint, &s.api_key, &s.vision_deployment, &s.vision_prompt, s.use_bearer);
+                    sm.configure_azure(
+                        &s.endpoint,
+                        &s.api_key,
+                        &s.vision_deployment,
+                        &s.vision_prompt,
+                        s.use_bearer,
+                    );
                     if !s.audio_deployment.is_empty() {
-                        sm.configure_audio(&s.endpoint, &s.api_key, &s.audio_deployment, &s.audio_prompt);
+                        sm.configure_audio(
+                            &s.endpoint,
+                            &s.api_key,
+                            &s.audio_deployment,
+                            &s.audio_prompt,
+                        );
                     }
                     log::info!("AI provider auto-configured from saved settings");
                 }

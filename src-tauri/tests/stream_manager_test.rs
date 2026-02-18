@@ -37,7 +37,13 @@ impl AudioSession for MockAudioSession {
 
 fn mock_session() -> (MockAudioSession, mpsc::UnboundedReceiver<Vec<u8>>) {
     let (tx, rx) = mpsc::unbounded_channel();
-    (MockAudioSession { sender: tx, closed: false }, rx)
+    (
+        MockAudioSession {
+            sender: tx,
+            closed: false,
+        },
+        rx,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -52,7 +58,9 @@ async fn audio_chunks_reach_session() {
     sm.inject_audio_session(Box::new(session)).await;
 
     let chunk = vec![1u8, 2, 3, 4, 5];
-    sm.process_audio_chunk(&chunk).await.expect("should succeed");
+    sm.process_audio_chunk(&chunk)
+        .await
+        .expect("should succeed");
 
     let received = rx.recv().await.expect("should receive data");
     assert_eq!(received, chunk);

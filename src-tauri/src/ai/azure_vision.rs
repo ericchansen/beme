@@ -133,7 +133,8 @@ impl AiProvider for AzureVisionClient {
                 if !retry_status.is_success() {
                     let retry_error = retry_response.text().await.unwrap_or_default();
                     return Err(AiError::ConnectionError(format!(
-                        "HTTP {}: {}", retry_status, retry_error
+                        "HTTP {}: {}",
+                        retry_status, retry_error
                     )));
                 }
                 return Ok(Box::new(ResponsesTextStream::new(
@@ -230,10 +231,7 @@ fn parse_sse_data(data: &str) -> ParseResult {
 
     match event_type {
         "response.output_text.delta" => {
-            let delta = parsed
-                .get("delta")
-                .and_then(|d| d.as_str())
-                .unwrap_or("");
+            let delta = parsed.get("delta").and_then(|d| d.as_str()).unwrap_or("");
             if delta.is_empty() {
                 ParseResult::Skip
             } else {
@@ -241,10 +239,7 @@ fn parse_sse_data(data: &str) -> ParseResult {
             }
         }
         "response.created" => {
-            if let Some(id) = parsed
-                .pointer("/response/id")
-                .and_then(|v| v.as_str())
-            {
+            if let Some(id) = parsed.pointer("/response/id").and_then(|v| v.as_str()) {
                 ParseResult::ResponseId(id.to_string())
             } else {
                 ParseResult::Skip
@@ -265,7 +260,9 @@ impl TextStream for ResponsesTextStream {
         loop {
             // Try to extract a complete line from the buffer
             if let Some(newline_pos) = self.buffer.find('\n') {
-                let line = self.buffer[..newline_pos].trim_end_matches('\r').to_string();
+                let line = self.buffer[..newline_pos]
+                    .trim_end_matches('\r')
+                    .to_string();
                 self.buffer = self.buffer[newline_pos + 1..].to_string();
 
                 if line.is_empty() {
@@ -373,10 +370,7 @@ mod tests {
         assert_eq!(content[0]["type"], "input_text");
         assert_eq!(content[0]["text"], "What do you see?");
         assert_eq!(content[1]["type"], "input_image");
-        assert_eq!(
-            content[1]["image_url"],
-            "data:image/jpeg;base64,base64data"
-        );
+        assert_eq!(content[1]["image_url"], "data:image/jpeg;base64,base64data");
     }
 
     #[test]
@@ -396,8 +390,7 @@ mod tests {
 
     #[test]
     fn test_parse_sse_data_delta() {
-        let data =
-            r#"{"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"Hello"}"#;
+        let data = r#"{"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"Hello"}"#;
         match parse_sse_data(data) {
             ParseResult::Delta(text) => assert_eq!(text, "Hello"),
             other => panic!("expected Delta, got {:?}", std::mem::discriminant(&other)),
